@@ -1,0 +1,465 @@
+# Work Management — projects (matters, engagements, jobs), tasks, time and delivery control.
+module:
+  id: work
+  name: Work Management
+  kind: module
+  version: 1.0.0
+  dependsOn: [core]
+  description: >-
+    Generic "unit of work" management. A Project is a project for architects and tech firms,
+    a Matter for law firms and an Engagement for accounting firms — same table, different
+    terminology and reference data. Covers phases, team and rates, tasks/backlog, sprints,
+    milestones, timesheets, resourcing, RAID log and status reporting.
+
+enums:
+  ProjectStatus:
+    description: Lifecycle of a project.
+    values:
+      - { code: 1, key: proposed }
+      - { code: 2, key: active }
+      - { code: 3, key: onHold }
+      - { code: 4, key: completed }
+      - { code: 5, key: cancelled }
+      - { code: 6, key: closed, label: Closed (financially) }
+  RagStatus:
+    description: Red/amber/green health indicator.
+    values:
+      - { code: 1, key: green }
+      - { code: 2, key: amber }
+      - { code: 3, key: red }
+  PhaseStatus:
+    description: Progress of a project phase.
+    values:
+      - { code: 1, key: notStarted }
+      - { code: 2, key: inProgress }
+      - { code: 3, key: completed }
+      - { code: 4, key: skipped }
+  MilestoneStatus:
+    description: State of a milestone.
+    values:
+      - { code: 1, key: planned }
+      - { code: 2, key: achieved }
+      - { code: 3, key: missed }
+      - { code: 4, key: cancelled }
+  WorkItemCategory:
+    description: Behaviour class behind configurable work item types.
+    values:
+      - { code: 1, key: epic }
+      - { code: 2, key: feature }
+      - { code: 3, key: story }
+      - { code: 4, key: task }
+      - { code: 5, key: bug }
+      - { code: 6, key: deliverable }
+      - { code: 7, key: issue }
+      - { code: 8, key: request }
+  WorkItemStatus:
+    description: Board column / progress of a work item.
+    values:
+      - { code: 1, key: backlog }
+      - { code: 2, key: toDo }
+      - { code: 3, key: inProgress }
+      - { code: 4, key: inReview }
+      - { code: 5, key: blocked }
+      - { code: 6, key: done }
+      - { code: 7, key: cancelled }
+  DependencyType:
+    description: Scheduling link between two work items.
+    values:
+      - { code: 1, key: finishToStart }
+      - { code: 2, key: startToStart }
+      - { code: 3, key: finishToFinish }
+      - { code: 4, key: startToFinish }
+  SprintStatus:
+    description: Lifecycle of a sprint/iteration.
+    values:
+      - { code: 1, key: planned }
+      - { code: 2, key: active }
+      - { code: 3, key: completed }
+  TimesheetStatus:
+    description: Lifecycle of a timesheet period.
+    values:
+      - { code: 1, key: open }
+      - { code: 2, key: submitted }
+      - { code: 3, key: approved }
+      - { code: 4, key: rejected }
+  TimeEntryStatus:
+    description: Lifecycle of a single time entry through to billing.
+    values:
+      - { code: 1, key: draft }
+      - { code: 2, key: submitted }
+      - { code: 3, key: approved }
+      - { code: 4, key: rejected }
+      - { code: 5, key: billed }
+      - { code: 6, key: writtenOff }
+  ResourceRequestStatus:
+    description: Progress of a staffing request.
+    values:
+      - { code: 1, key: draft }
+      - { code: 2, key: submitted }
+      - { code: 3, key: partiallyFilled }
+      - { code: 4, key: filled }
+      - { code: 5, key: cancelled }
+  RaidType:
+    description: RAID log entry type.
+    values:
+      - { code: 1, key: risk }
+      - { code: 2, key: assumption }
+      - { code: 3, key: issue }
+      - { code: 4, key: decision }
+      - { code: 5, key: dependency }
+      - { code: 6, key: changeRequest }
+  RaidStatus:
+    description: Progress of a RAID entry.
+    values:
+      - { code: 1, key: open }
+      - { code: 2, key: inProgress }
+      - { code: 3, key: resolved }
+      - { code: 4, key: accepted }
+      - { code: 5, key: closed }
+  ImpactLevel:
+    description: Four-point probability/impact scale.
+    values:
+      - { code: 1, key: low }
+      - { code: 2, key: medium }
+      - { code: 3, key: high }
+      - { code: 4, key: veryHigh }
+
+termSets:
+  WorkTag:
+    description: Free tags for work items.
+    open: true
+    terms: []
+
+entities:
+  # ------------------------------------------------------------- configuration
+  ProjectType:
+    description: Kind of project (matter type, engagement type, job type). Drives defaults and numbering.
+    ownership: organization
+    attributes:
+      name: string(100)!
+      code: { type: string(30)!, unique: true }
+      defaultBillingModel: choice(BillingModel)
+      requiresClient: boolean
+      isInternal: boolean
+      numberPrefix: { type: string(10), description: "Prefix for project numbers of this type, e.g. M- for matters." }
+      description: text
+
+  ProjectPhaseDefinition:
+    description: Template phase/stage (RIBA stages, audit phases, litigation stages, delivery phases).
+    ownership: organization
+    attributes:
+      name: string(100)!
+      code: { type: string(30)!, unique: true }
+      framework: { type: string(50), description: "Method this phase belongs to, e.g. RIBA 2020, AIA, Audit, Scrum." }
+      projectType: { type: lookup(ProjectType), description: Empty means usable by every project type. }
+      sequence: integer!
+      defaultFeePercent: percent
+      description: text
+
+  ProjectRole:
+    description: Role on a project with default rates (Partner, Project Architect, Associate, Engineer…).
+    ownership: organization
+    attributes:
+      name: string(100)!
+      code: { type: string(30)!, unique: true }
+      defaultBillRate: money
+      defaultCostRate: { type: money, sensitivity: confidential }
+      currency: lookup(Currency)
+      description: text
+
+  WorkItemType:
+    description: Configurable work item type mapped to a behaviour category.
+    ownership: organization
+    attributes:
+      name: string(100)!
+      code: { type: string(30)!, unique: true }
+      category: choice(WorkItemCategory)!
+      allowsChildren: boolean
+      icon: { type: string(50), description: Fluent UI icon name. }
+      description: text
+
+  TimeCode:
+    description: Activity/task code for time recording (UTBMS for law, phase codes for architects…).
+    ownership: organization
+    attributes:
+      name: string(150)!
+      code: { type: string(20)!, unique: true }
+      codeSet: { type: string(50), description: "Group of codes, e.g. UTBMS-Litigation, Internal." }
+      parentCode: lookup(TimeCode)
+      isBillableDefault: boolean
+      description: text
+
+  # ------------------------------------------------------------------ projects
+  Project:
+    description: >-
+      The unit of client or internal work — project, matter, engagement or job. Industries
+      rename it and add columns through overlays; the core shape stays the same.
+    volume: medium
+    traits: [integration, classified]
+    keys: [[projectNumber]]
+    attributes:
+      name: string(200)!
+      projectNumber: { type: autonumber, format: "PRJ-{SEQNUM:6}", description: Prefix can follow ProjectType.numberPrefix. }
+      projectType: lookup(ProjectType)!
+      client: lookup(Account)
+      clientContact: lookup(Contact)
+      status: { type: choice(ProjectStatus)!, default: proposed }
+      health: choice(RagStatus)
+      currentPhase: lookup(ProjectPhase)
+      projectManager: lookup(Employee)!
+      sponsor: { type: lookup(Employee), description: "Partner-in-charge / principal / director accountable for the work." }
+      orgUnit: lookup(OrgUnit)!
+      legalEntity: lookup(LegalEntity)
+      office: lookup(Office)
+      costCenter: lookup(CostCenter)
+      serviceLine: term(ServiceLine)
+      parentProject: lookup(Project)
+      isTemplate: { type: boolean, description: Template projects are copied to create new ones. }
+      billingModel: choice(BillingModel)!
+      contractValue: money
+      budgetAmount: money
+      budgetHours: "decimal(12,2)"
+      currency: lookup(Currency)!
+      startDate: date
+      targetEndDate: date
+      actualEndDate: date
+      priority: choice(Priority)
+      isConfidential: { type: boolean, description: Visible to project members only. }
+      workspaceUrl: { type: url, description: Teams/SharePoint workspace provisioned for the project. }
+      description: richtext
+      actualHours: { type: "decimal(12,2)", readOnly: true, calculated: "sum of approved TimeEntry.hours" }
+      actualCost: { type: money, readOnly: true, calculated: "sum of TimeEntry hours × cost rate + expenses" }
+      percentComplete: { type: percent, readOnly: true }
+
+  ProjectPhase:
+    description: Phase/stage of one project, with its own budget and dates.
+    volume: medium
+    attributes:
+      project: parent(Project)
+      definition: lookup(ProjectPhaseDefinition)
+      name: string(100)!
+      sequence: integer!
+      status: { type: choice(PhaseStatus)!, default: notStarted }
+      startDate: date
+      endDate: date
+      actualEndDate: date
+      feePercent: percent
+      budgetHours: "decimal(12,2)"
+      budgetAmount: money
+      currency: lookup(Currency)
+
+  ProjectMember:
+    description: Person on a project team with role, allocation and rates.
+    volume: medium
+    primary: auto
+    keys: [[project, employee, role]]
+    attributes:
+      project: parent(Project)
+      employee: lookup(Employee)!
+      role: lookup(ProjectRole)!
+      allocationPercent: percent
+      startDate: date
+      endDate: date
+      billRate: money
+      costRate: { type: money, sensitivity: confidential }
+      currency: lookup(Currency)
+
+  Milestone:
+    description: Key date or deliverable, optionally a billing trigger.
+    volume: medium
+    attributes:
+      project: parent(Project)
+      phase: lookup(ProjectPhase)
+      name: string(200)!
+      dueDate: date!
+      completedOn: date
+      status: { type: choice(MilestoneStatus)!, default: planned }
+      isBillingMilestone: boolean
+      billingAmount: money
+      currency: lookup(Currency)
+
+  Sprint:
+    description: Time-boxed iteration for agile projects.
+    attributes:
+      project: parent(Project)
+      name: string(100)!
+      goal: text
+      startDate: date!
+      endDate: date!
+      status: { type: choice(SprintStatus)!, default: planned }
+      capacityHours: "decimal(8,2)"
+
+  WorkItem:
+    description: Task, deliverable, story or bug. Hierarchical through parentWorkItem.
+    volume: high
+    traits: [integration]
+    primary: title
+    keys: [[itemNumber]]
+    attributes:
+      title: string(250)!
+      itemNumber: { type: autonumber, format: "WI-{SEQNUM:7}" }
+      project: parent(Project)
+      phase: lookup(ProjectPhase)
+      workItemType: lookup(WorkItemType)!
+      parentWorkItem: lookup(WorkItem)
+      status: { type: choice(WorkItemStatus)!, default: backlog }
+      priority: choice(Priority)
+      assignedTo: lookup(Employee)
+      reporter: lookup(Employee)
+      sprint: lookup(Sprint)
+      milestone: lookup(Milestone)
+      startDate: date
+      dueDate: date
+      completedOn: datetime
+      estimateHours: "decimal(8,2)"
+      remainingHours: "decimal(8,2)"
+      storyPoints: "decimal(5,1)"
+      rank: { type: string(50), indexed: true, description: "Lexicographic sort key (LexoRank) so drag-and-drop reordering never renumbers rows." }
+      isBillable: boolean
+      tags: multiterm(WorkTag)
+      description: richtext
+      acceptanceCriteria: richtext
+
+  WorkItemDependency:
+    description: Scheduling dependency between two work items.
+    volume: medium
+    primary: auto
+    attributes:
+      predecessor: parent(WorkItem)
+      successor: lookup(WorkItem)!
+      dependencyType: { type: choice(DependencyType)!, default: finishToStart }
+      lagDays: integer
+
+  # ---------------------------------------------------------------------- time
+  Timesheet:
+    description: One person's time for one period; the unit of submission and approval.
+    volume: medium
+    primary: auto
+    keys: [[employee, periodStart]]
+    attributes:
+      employee: lookup(Employee)!
+      periodStart: date!
+      periodEnd: date!
+      status: { type: choice(TimesheetStatus)!, default: open }
+      totalHours: { type: "decimal(6,2)", readOnly: true }
+      billableHours: { type: "decimal(6,2)", readOnly: true }
+      submittedOn: datetime
+      approvalRequest: lookup(ApprovalRequest)
+
+  TimeEntry:
+    description: Hours worked by a person on a project on a day. Billing narrative included.
+    volume: high
+    traits: [integration]
+    primary: auto
+    attributes:
+      timesheet: lookup(Timesheet)
+      employee: lookup(Employee)!
+      project: lookup(Project)!
+      phase: lookup(ProjectPhase)
+      workItem: lookup(WorkItem)
+      timeCode: lookup(TimeCode)
+      entryDate: date!
+      hours: "decimal(6,2)!"
+      isBillable: boolean
+      narrative: { type: text, description: Client-facing description; appears on invoices. }
+      internalNotes: text
+      status: { type: choice(TimeEntryStatus)!, default: draft }
+      billRate: money
+      billAmount: { type: money, readOnly: true, calculated: "hours × billRate" }
+      currency: lookup(Currency)
+      invoiceReference: { type: string(50), description: Invoice number in the finance/ERP system. }
+    notes:
+      - High volume. Not suitable for SharePoint lists beyond a small pilot; use Dataverse or SQL.
+
+  # ------------------------------------------------------------------- control
+  ResourceRequest:
+    description: Request to staff a role on a project for a period.
+    primary: auto
+    attributes:
+      project: parent(Project)
+      role: lookup(ProjectRole)!
+      requestedBy: lookup(Employee)!
+      startDate: date!
+      endDate: date!
+      hoursRequired: "decimal(8,2)"
+      allocationPercent: percent
+      priority: choice(Priority)
+      status: { type: choice(ResourceRequestStatus)!, default: draft }
+      assignedEmployee: lookup(Employee)
+      notes: text
+
+  RaidItem:
+    description: Risk, assumption, issue, decision, dependency or change request on a project.
+    label: RAID Item
+    volume: medium
+    primary: title
+    attributes:
+      project: parent(Project)
+      raidType: choice(RaidType)!
+      title: string(250)!
+      description: text
+      assignedTo: lookup(Employee)
+      probability: choice(ImpactLevel)
+      impact: choice(ImpactLevel)
+      severityScore: { type: integer, readOnly: true, calculated: "probability code × impact code" }
+      status: { type: choice(RaidStatus)!, default: open }
+      raisedOn: date
+      dueDate: date
+      closedOn: date
+      mitigation: text
+      costImpact: money
+      scheduleImpactDays: integer
+      currency: lookup(Currency)
+      decidedBy: lookup(Employee)
+      approvalRequest: { type: lookup(ApprovalRequest), description: For change requests. }
+
+  StatusReport:
+    description: Periodic project status report.
+    volume: medium
+    primary: auto
+    keys: [[project, periodEnd]]
+    attributes:
+      project: parent(Project)
+      periodEnd: date!
+      overallHealth: choice(RagStatus)!
+      scheduleHealth: choice(RagStatus)
+      budgetHealth: choice(RagStatus)
+      scopeHealth: choice(RagStatus)
+      percentComplete: percent
+      summary: richtext!
+      accomplishments: richtext
+      nextSteps: richtext
+      risksAndIssues: richtext
+      reportedBy: lookup(Employee)
+      publishedOn: datetime
+
+seed:
+  ProjectType:
+    - { code: CLIENT, name: Client project, defaultBillingModel: timeAndMaterials, requiresClient: true, isInternal: false }
+    - { code: RETAINER, name: Retainer / ongoing support, defaultBillingModel: retainer, requiresClient: true, isInternal: false }
+    - { code: PURSUIT, name: Business development pursuit, defaultBillingModel: nonBillable, requiresClient: false, isInternal: true }
+    - { code: INTERNAL, name: Internal project, defaultBillingModel: nonBillable, requiresClient: false, isInternal: true }
+  ProjectPhaseDefinition:
+    - { code: GEN_INITIATE, name: Initiate, framework: Generic, sequence: 1 }
+    - { code: GEN_PLAN, name: Plan, framework: Generic, sequence: 2 }
+    - { code: GEN_EXECUTE, name: Execute, framework: Generic, sequence: 3 }
+    - { code: GEN_CLOSE, name: Close, framework: Generic, sequence: 4 }
+  ProjectRole:
+    - { code: DIRECTOR, name: Director / Partner }
+    - { code: PM, name: Project Manager }
+    - { code: SENIOR, name: Senior Consultant }
+    - { code: CONSULTANT, name: Consultant }
+    - { code: ANALYST, name: Analyst }
+    - { code: ADMIN, name: Project Administrator }
+  WorkItemType:
+    - { code: TASK, name: Task, category: task, allowsChildren: true }
+    - { code: DELIVERABLE, name: Deliverable, category: deliverable, allowsChildren: true }
+    - { code: ISSUE, name: Issue, category: issue, allowsChildren: false }
+    - { code: REQUEST, name: Client request, category: request, allowsChildren: false }
+  TimeCode:
+    - { code: GEN, name: General, codeSet: Internal, isBillableDefault: true }
+    - { code: MTG, name: Meetings, codeSet: Internal, isBillableDefault: true }
+    - { code: TRAVEL, name: Travel time, codeSet: Internal, isBillableDefault: false }
+    - { code: ADMIN, name: Administration, codeSet: Internal, isBillableDefault: false }
+    - { code: BD, name: Business development, codeSet: Internal, isBillableDefault: false }
+    - { code: TRAINING, name: Training, codeSet: Internal, isBillableDefault: false }

@@ -1,0 +1,461 @@
+# CRM — clients, pipeline, proposals, relationship activity and consent.
+module:
+  id: crm
+  name: CRM
+  kind: module
+  version: 1.0.0
+  dependsOn: [core]
+  description: >-
+    Client relationship management for professional-services firms: leads, opportunities on
+    configurable pipelines, proposals/fee quotes, activities, campaigns and events, consent
+    tracking and account relationships (used for conflict checks in law and accounting).
+    Builds on the core Account and Contact tables instead of creating its own.
+
+enums:
+  AccountTier:
+    description: Strategic importance of a client.
+    values:
+      - { code: 1, key: strategic }
+      - { code: 2, key: key }
+      - { code: 3, key: standard }
+      - { code: 4, key: transactional }
+  PaymentTerms:
+    description: Default payment terms agreed with an account.
+    values:
+      - { code: 1, key: dueOnReceipt }
+      - { code: 2, key: net15 }
+      - { code: 3, key: net30 }
+      - { code: 4, key: net45 }
+      - { code: 5, key: net60 }
+  ContactChannel:
+    description: Preferred way to reach a contact.
+    values:
+      - { code: 1, key: email }
+      - { code: 2, key: phone }
+      - { code: 3, key: video }
+      - { code: 4, key: inPerson }
+      - { code: 5, key: post }
+  BuyingRole:
+    description: Role a contact plays in buying decisions.
+    values:
+      - { code: 1, key: decisionMaker }
+      - { code: 2, key: economicBuyer }
+      - { code: 3, key: influencer }
+      - { code: 4, key: champion }
+      - { code: 5, key: endUser }
+      - { code: 6, key: gatekeeper }
+      - { code: 7, key: blocker }
+  LeadStatus:
+    description: Progress of a lead.
+    values:
+      - { code: 1, key: new }
+      - { code: 2, key: contacted }
+      - { code: 3, key: nurturing }
+      - { code: 4, key: qualified }
+      - { code: 5, key: disqualified }
+  LeadRating:
+    description: Sales temperature of a lead.
+    values:
+      - { code: 1, key: hot }
+      - { code: 2, key: warm }
+      - { code: 3, key: cold }
+  OpportunityStatus:
+    description: Outcome of an opportunity. The stage lives in the pipeline, the outcome here.
+    values:
+      - { code: 1, key: open }
+      - { code: 2, key: won }
+      - { code: 3, key: lost }
+      - { code: 4, key: abandoned }
+  LossReason:
+    description: Why an opportunity was lost or abandoned.
+    values:
+      - { code: 1, key: price }
+      - { code: 2, key: scope }
+      - { code: 3, key: timing }
+      - { code: 4, key: competitor }
+      - { code: 5, key: noDecision }
+      - { code: 6, key: relationship }
+      - { code: 7, key: capability }
+      - { code: 8, key: conflictOfInterest }
+      - { code: 99, key: other }
+  OpportunityRole:
+    description: Role of an employee on a pursuit team.
+    values:
+      - { code: 1, key: lead }
+      - { code: 2, key: supporting }
+      - { code: 3, key: technicalExpert }
+      - { code: 4, key: pricing }
+      - { code: 5, key: executiveSponsor }
+  ProposalStatus:
+    description: Lifecycle of a proposal, quote or fee proposal.
+    values:
+      - { code: 1, key: draft }
+      - { code: 2, key: inReview }
+      - { code: 3, key: sent }
+      - { code: 4, key: accepted }
+      - { code: 5, key: rejected }
+      - { code: 6, key: expired }
+      - { code: 7, key: withdrawn }
+  ActivityType:
+    description: Kind of client interaction.
+    values:
+      - { code: 1, key: call }
+      - { code: 2, key: meeting }
+      - { code: 3, key: email }
+      - { code: 4, key: task }
+      - { code: 5, key: note }
+      - { code: 6, key: letter }
+  ActivityStatus:
+    description: Whether an activity is still to do.
+    values:
+      - { code: 1, key: open }
+      - { code: 2, key: completed }
+      - { code: 3, key: cancelled }
+  ActivityDirection:
+    description: Who initiated the interaction.
+    values:
+      - { code: 1, key: inbound }
+      - { code: 2, key: outbound }
+  CampaignType:
+    description: Kind of marketing or business-development campaign.
+    values:
+      - { code: 1, key: event }
+      - { code: 2, key: webinar }
+      - { code: 3, key: newsletter }
+      - { code: 4, key: emailCampaign }
+      - { code: 5, key: socialMedia }
+      - { code: 6, key: sponsorship }
+      - { code: 7, key: thoughtLeadership }
+  CampaignStatus:
+    description: Lifecycle of a campaign.
+    values:
+      - { code: 1, key: planned }
+      - { code: 2, key: active }
+      - { code: 3, key: completed }
+      - { code: 4, key: cancelled }
+  CampaignMemberStatus:
+    description: Response of a campaign member.
+    values:
+      - { code: 1, key: invited }
+      - { code: 2, key: registered }
+      - { code: 3, key: attended }
+      - { code: 4, key: noShow }
+      - { code: 5, key: responded }
+      - { code: 6, key: unsubscribed }
+  ConsentPurpose:
+    description: What a person has (or has not) consented to.
+    values:
+      - { code: 1, key: marketingEmail }
+      - { code: 2, key: newsletters }
+      - { code: 3, key: eventInvitations }
+      - { code: 4, key: profiling }
+      - { code: 5, key: thirdPartySharing }
+  ConsentMethod:
+    description: How consent was captured.
+    values:
+      - { code: 1, key: webForm }
+      - { code: 2, key: email }
+      - { code: 3, key: verbal }
+      - { code: 4, key: paperForm }
+      - { code: 5, key: import }
+  AccountRelationshipType:
+    description: Relationship between two organisations. Feeds conflict-of-interest searches.
+    values:
+      - { code: 1, key: owns, label: Owns / parent of }
+      - { code: 2, key: affiliate }
+      - { code: 3, key: jointVenture }
+      - { code: 4, key: referralPartner }
+      - { code: 5, key: serviceProvider }
+      - { code: 6, key: formerlyKnownAs }
+      - { code: 99, key: other }
+
+extend:
+  Account:
+    attributes:
+      accountTier: choice(AccountTier)
+      annualRevenue: money
+      employeeCount: integer
+      originalSource: lookup(LeadSource)
+      clientSince: date
+      paymentTerms: choice(PaymentTerms)
+      creditLimit: money
+      linkedInUrl: url
+      lastActivityOn: { type: datetime, readOnly: true, calculated: "latest completed Activity regarding this account" }
+  Contact:
+    attributes:
+      buyingRole: choice(BuyingRole)
+      preferredChannel: choice(ContactChannel)
+      relationshipOwner: lookup(Employee)
+      doNotEmail: { type: boolean, dataverse: donotemail (native) }
+      doNotPhone: { type: boolean, dataverse: donotphone (native) }
+      doNotBulkEmail: { type: boolean, dataverse: donotbulkemail (native) }
+      lastActivityOn: { type: datetime, readOnly: true, calculated: "latest completed Activity regarding this contact" }
+
+entities:
+  LeadSource:
+    description: Where leads and opportunities come from.
+    ownership: organization
+    attributes:
+      name: string(100)!
+      code: { type: string(30)!, unique: true }
+      description: text
+
+  Lead:
+    description: Unqualified interest from a person or company. Qualifies into Account, Contact and Opportunity.
+    volume: medium
+    traits: [integration, classified]
+    primary: topic
+    attributes:
+      topic: string(200)!
+      firstName: string(100)
+      lastName: string(100)!
+      companyName: string(200)
+      jobTitle: string(150)
+      email: { type: email, pii: true }
+      phone: { type: phone, pii: true }
+      source: lookup(LeadSource)
+      campaign: lookup(Campaign)
+      referredBy: lookup(Contact)
+      status: { type: choice(LeadStatus)!, default: new }
+      rating: choice(LeadRating)
+      serviceLine: term(ServiceLine)
+      industry: term(Industry)
+      estimatedValue: money
+      currency: lookup(Currency)
+      description: text
+      qualifiedAccount: lookup(Account)
+      qualifiedContact: lookup(Contact)
+      qualifiedOpportunity: lookup(Opportunity)
+      disqualifiedReason: string(200)
+    notes:
+      - With Dynamics 365 Sales licensed, map to the standard lead table instead of a custom one.
+
+  SalesPipeline:
+    description: A configurable sales process (e.g. new business, tenders/panels, renewals).
+    ownership: organization
+    attributes:
+      name: string(100)!
+      code: { type: string(30)!, unique: true }
+      serviceLine: term(ServiceLine)
+      isDefault: boolean
+      description: text
+
+  PipelineStage:
+    description: Ordered stage of a sales pipeline.
+    ownership: organization
+    attributes:
+      pipeline: parent(SalesPipeline)
+      name: string(100)!
+      code: { type: string(30)!, unique: true }
+      sequence: integer!
+      defaultProbability: percent
+      isClosed: boolean
+      isWon: boolean
+      exitCriteria: text
+
+  Opportunity:
+    description: A potential piece of work for an account, tracked through a pipeline to won or lost.
+    volume: medium
+    traits: [integration, classified]
+    keys: [[opportunityNumber]]
+    attributes:
+      name: string(200)!
+      opportunityNumber: { type: autonumber, format: "OPP-{SEQNUM:6}" }
+      account: lookup(Account)!
+      primaryContact: lookup(Contact)
+      pipeline: lookup(SalesPipeline)!
+      stage: lookup(PipelineStage)!
+      status: { type: choice(OpportunityStatus)!, default: open }
+      probability: percent
+      estimatedValue: money!
+      weightedValue: { type: money, readOnly: true, calculated: "estimatedValue × probability" }
+      currency: lookup(Currency)!
+      estimatedCloseDate: date!
+      actualCloseDate: date
+      actualValue: money
+      serviceLine: term(ServiceLine)
+      source: lookup(LeadSource)
+      originatingLead: lookup(Lead)
+      campaign: lookup(Campaign)
+      isTender: { type: boolean, description: Formal RFP / tender / panel process. }
+      tenderDeadline: datetime
+      lossReason: choice(LossReason)
+      competitorName: string(200)
+      nextStep: string(250)
+      nextStepDate: date
+      description: text
+    notes:
+      - With Dynamics 365 Sales licensed, map to the standard opportunity table.
+
+  OpportunityTeamMember:
+    description: Employee working on a pursuit.
+    primary: auto
+    keys: [[opportunity, employee]]
+    attributes:
+      opportunity: parent(Opportunity)
+      employee: lookup(Employee)!
+      role: choice(OpportunityRole)!
+      notes: string(250)
+
+  ServiceOffering:
+    description: Catalogue of services or products the firm sells, with default pricing.
+    ownership: organization
+    attributes:
+      name: string(200)!
+      code: { type: string(30)!, unique: true }
+      serviceLine: term(ServiceLine)
+      unit: choice(UnitOfMeasure)
+      defaultPrice: money
+      currency: lookup(Currency)
+      description: text
+
+  Proposal:
+    description: >-
+      A priced offer to a client — quote, fee proposal, pitch or engagement proposal.
+      Each revision is a new row so sent versions are never overwritten.
+    volume: medium
+    traits: [classified]
+    keys: [[proposalNumber, revision]]
+    attributes:
+      name: string(200)!
+      proposalNumber: { type: string(20)!, indexed: true, description: "Assigned on the first revision (PRP-000123) and copied to later revisions." }
+      revision: { type: integer!, default: 1 }
+      opportunity: lookup(Opportunity)!
+      account: lookup(Account)!
+      contact: lookup(Contact)
+      status: { type: choice(ProposalStatus)!, default: draft }
+      billingModel: choice(BillingModel)!
+      issuedOn: date
+      validUntil: date
+      acceptedOn: date
+      subtotal: { type: money, readOnly: true, calculated: "sum of ProposalLine.lineTotal" }
+      discountAmount: money
+      taxAmount: money
+      totalAmount: { type: money, readOnly: true, calculated: "subtotal − discountAmount + taxAmount" }
+      currency: lookup(Currency)!
+      preparedBy: lookup(Employee)
+      approvalRequest: lookup(ApprovalRequest)
+      terms: richtext
+      documentUrl: { type: url, description: Final issued PDF. }
+
+  ProposalLine:
+    description: Priced line on a proposal.
+    volume: medium
+    primary: description
+    attributes:
+      proposal: parent(Proposal)
+      lineNumber: integer!
+      service: lookup(ServiceOffering)
+      description: string(500)!
+      phase: { type: string(100), description: "Stage/deliverable this line belongs to, e.g. RIBA Stage 2." }
+      quantity: "decimal(12,2)!"
+      unit: choice(UnitOfMeasure)
+      unitPrice: money!
+      discountPercent: percent
+      lineTotal: { type: money, readOnly: true, calculated: "quantity × unitPrice × (1 − discountPercent)" }
+      currency: lookup(Currency)!
+
+  Activity:
+    description: A logged client interaction or follow-up (call, meeting, email, task, note).
+    volume: high
+    traits: [integration]
+    platforms: { dataverse: "standard:activitypointer" }
+    primary: subject
+    attributes:
+      subject: string(200)!
+      activityType: choice(ActivityType)!
+      regarding: polylookup(Account|Contact|Lead|Opportunity)!
+      status: { type: choice(ActivityStatus)!, default: open }
+      direction: choice(ActivityDirection)
+      priority: choice(Priority)
+      startOn: datetime
+      endOn: datetime
+      dueOn: datetime
+      completedOn: datetime
+      durationMinutes: duration
+      location: string(200)
+      attendees: multilookup(Contact)
+      internalAttendees: multilookup(Employee)
+      description: richtext
+      outcome: string(250)
+    notes:
+      - In Dataverse use the native activity tables (task, phonecall, appointment, email); server-side sync with Exchange can track meetings and emails automatically.
+      - On SharePoint keep only the latest 12–24 months in the list and archive the rest.
+
+  Campaign:
+    description: Marketing or business-development initiative (seminar, webinar, newsletter, sponsorship).
+    traits: [integration]
+    attributes:
+      name: string(200)!
+      campaignType: choice(CampaignType)!
+      status: { type: choice(CampaignStatus)!, default: planned }
+      serviceLine: term(ServiceLine)
+      startDate: date
+      endDate: date
+      budget: money
+      actualCost: money
+      currency: lookup(Currency)
+      expectedResponses: integer
+      description: text
+
+  CampaignMember:
+    description: A contact or lead targeted by a campaign and their response.
+    volume: medium
+    primary: auto
+    attributes:
+      campaign: parent(Campaign)
+      contact: lookup(Contact)
+      lead: lookup(Lead)
+      status: { type: choice(CampaignMemberStatus)!, default: invited }
+      respondedOn: datetime
+    notes:
+      - Exactly one of contact or lead must be set (business rule).
+
+  ConsentRecord:
+    description: >-
+      Append-only evidence of a consent decision (GDPR/CCPA/DPDP). The current state is the
+      latest record per person and purpose; Contact do-not-contact flags are derived from it.
+    volume: medium
+    sensitivity: confidential
+    primary: auto
+    attributes:
+      contact: lookup(Contact)
+      lead: lookup(Lead)
+      purpose: choice(ConsentPurpose)!
+      granted: boolean
+      capturedOn: datetime!
+      method: choice(ConsentMethod)!
+      source: { type: string(200), description: "Form, campaign or person that captured it." }
+      expiresOn: date
+      evidenceUrl: url
+
+  AccountRelationship:
+    description: Directed relationship between two organisations (ownership, affiliates, former names).
+    primary: auto
+    attributes:
+      fromAccount: lookup(Account)!
+      toAccount: lookup(Account)!
+      relationshipType: choice(AccountRelationshipType)!
+      startDate: date
+      endDate: date
+      notes: text
+
+seed:
+  LeadSource:
+    - { code: WEBSITE, name: Website enquiry }
+    - { code: REF_CLIENT, name: Referral – existing client }
+    - { code: REF_PARTNER, name: Referral – partner firm }
+    - { code: EVENT, name: Event / seminar }
+    - { code: LINKEDIN, name: LinkedIn }
+    - { code: OUTREACH, name: Direct outreach }
+    - { code: TENDER, name: Tender / RFP portal }
+    - { code: EXISTING, name: Existing client – new work }
+  SalesPipeline:
+    - { code: NEW_BUSINESS, name: New business, isDefault: true }
+  PipelineStage:
+    - { pipeline: NEW_BUSINESS, code: NB_QUALIFY, name: Qualify, sequence: 1, defaultProbability: 10, isClosed: false, isWon: false }
+    - { pipeline: NEW_BUSINESS, code: NB_DISCOVER, name: Discover needs, sequence: 2, defaultProbability: 25, isClosed: false, isWon: false }
+    - { pipeline: NEW_BUSINESS, code: NB_PROPOSE, name: Propose, sequence: 3, defaultProbability: 50, isClosed: false, isWon: false }
+    - { pipeline: NEW_BUSINESS, code: NB_NEGOTIATE, name: Negotiate, sequence: 4, defaultProbability: 75, isClosed: false, isWon: false }
+    - { pipeline: NEW_BUSINESS, code: NB_WON, name: Won, sequence: 5, defaultProbability: 100, isClosed: true, isWon: true }
+    - { pipeline: NEW_BUSINESS, code: NB_LOST, name: Lost, sequence: 6, defaultProbability: 0, isClosed: true, isWon: false }

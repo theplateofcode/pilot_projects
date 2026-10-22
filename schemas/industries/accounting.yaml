@@ -1,0 +1,301 @@
+# Accounting firms — engagements, PBC requests, filing deadlines, independence, CPA/ACCA/CA credentials.
+module:
+  id: accounting-crm
+  name: Accounting – CRM overlay
+  kind: industry
+  version: 1.0.0
+  dependsOn: [crm]
+  description: Client profile data accounting firms need (entity type, year end, tax references).
+
+terminology:
+  Account: { singular: Client, plural: Clients }
+  Proposal: { singular: Engagement Proposal, plural: Engagement Proposals }
+
+enums:
+  ClientEntityType:
+    description: Legal form of a client.
+    values:
+      - { code: 1, key: individual }
+      - { code: 2, key: soleTrader }
+      - { code: 3, key: partnership }
+      - { code: 4, key: llp, label: LLP }
+      - { code: 5, key: privateCompany }
+      - { code: 6, key: publicCompany }
+      - { code: 7, key: trust }
+      - { code: 8, key: charity }
+      - { code: 9, key: publicBody }
+
+termSets:
+  ServiceLine:
+    extends: true
+    terms:
+      - Audit & assurance
+      - Tax
+      - Advisory
+      - Accounts & bookkeeping
+      - Payroll services
+      - Forensic accounting
+
+extend:
+  Account:
+    attributes:
+      entityType: choice(ClientEntityType)
+      taxReference: { type: string(50), sensitivity: restricted }
+      salesTaxNumber: { type: string(30), description: VAT / GST / sales tax registration. }
+      yearEndMonth: { type: integer, min: 1, max: 12 }
+      yearEndDay: { type: integer, min: 1, max: 31 }
+      isPublicInterestEntity: boolean
+      isListed: boolean
+      isAuditExempt: boolean
+      accountingSoftware: { type: string(100), description: "Client's bookkeeping system, e.g. Xero, QuickBooks, Tally, Sage." }
+      payrollHeadcount: integer
+
+seed:
+  LeadSource:
+    - { code: ACC_REF_BANK, name: Referral – bank }
+    - { code: ACC_REF_LAWYER, name: Referral – law firm }
+---
+module:
+  id: accounting-work
+  name: Accounting – Engagement management overlay
+  kind: industry
+  version: 1.0.0
+  dependsOn: [work, proserv-compliance]
+  description: >-
+    Turns Work Management into engagement management: engagement terminology, audit and tax
+    phases, roll-forward of recurring engagements, quality review, PBC (prepared-by-client)
+    requests, statutory filing deadlines and independence declarations.
+
+terminology:
+  Project: { singular: Engagement, plural: Engagements }
+  ProjectType: { singular: Engagement Type, plural: Engagement Types }
+  ProjectMember: { singular: Engagement Team Member, plural: Engagement Team }
+  Project.projectNumber: { label: Engagement Number }
+  Project.projectManager: { label: Engagement Manager }
+  Project.sponsor: { label: Engagement Partner }
+
+enums:
+  RecurrencePattern:
+    description: How often an engagement recurs.
+    values:
+      - { code: 1, key: oneOff }
+      - { code: 2, key: annual }
+      - { code: 3, key: quarterly }
+      - { code: 4, key: monthly }
+  InfoRequestStatus:
+    description: State of a prepared-by-client request.
+    values:
+      - { code: 1, key: notSent }
+      - { code: 2, key: requested }
+      - { code: 3, key: partiallyReceived }
+      - { code: 4, key: received }
+      - { code: 5, key: accepted }
+      - { code: 6, key: notApplicable }
+  DeadlineStatus:
+    description: State of a statutory deadline.
+    values:
+      - { code: 1, key: upcoming }
+      - { code: 2, key: inProgress }
+      - { code: 3, key: filed }
+      - { code: 4, key: extended }
+      - { code: 5, key: missed }
+      - { code: 6, key: notRequired }
+  DeclarationType:
+    description: Occasion of an independence declaration.
+    values:
+      - { code: 1, key: annual }
+      - { code: 2, key: engagementSpecific }
+      - { code: 3, key: newJoiner }
+  DeclarationStatus:
+    description: Review state of an independence declaration.
+    values:
+      - { code: 1, key: pending }
+      - { code: 2, key: submitted }
+      - { code: 3, key: underReview }
+      - { code: 4, key: cleared }
+      - { code: 5, key: actionRequired }
+
+termSets:
+  ReportingFramework:
+    description: Financial reporting framework of an engagement.
+    terms:
+      - IFRS
+      - IFRS for SMEs
+      - US GAAP
+      - UK GAAP (FRS 102)
+      - FRS 105
+      - Ind AS
+      - Local GAAP – other
+      - Cash basis
+  DeadlineType:
+    description: Kind of statutory or client deadline.
+    terms:
+      - Corporate tax return
+      - Personal tax return
+      - VAT / GST / sales tax return
+      - Payroll filing
+      - Annual accounts filing
+      - Annual return / confirmation statement
+      - Estimated tax payment
+      - Audit report
+
+extend:
+  Project:
+    attributes:
+      periodStart: { type: date, description: Start of the financial period covered. }
+      periodEnd: date
+      reportingFramework: term(ReportingFramework)
+      isRecurring: boolean
+      recurrence: choice(RecurrencePattern)
+      previousEngagement: { type: lookup(Project), description: Prior-year engagement this one rolled forward from. }
+      reportDeadline: date
+      reportSignedOn: date
+      qualityReviewRequired: { type: boolean, description: Engagement quality review (EQR) required. }
+      qualityReviewer: lookup(Employee)
+      independenceConfirmed: boolean
+      materiality: money
+
+entities:
+  InformationRequest:
+    description: Prepared-by-client (PBC) request for documents or data, typically answered through a client portal.
+    volume: medium
+    primary: title
+    attributes:
+      project: { type: parent(Project), label: Engagement }
+      title: string(200)!
+      area: { type: string(100), description: "Audit area, e.g. Fixed assets, Payroll, Revenue." }
+      requestedFrom: lookup(Contact)!
+      requestedBy: lookup(Employee)
+      requestedOn: date!
+      dueDate: date!
+      receivedOn: date
+      status: { type: choice(InfoRequestStatus)!, default: notSent }
+      followUpCount: integer
+      documentUrl: url
+      description: text
+
+  ComplianceDeadline:
+    description: Statutory filing or payment deadline for a client.
+    volume: medium
+    primary: title
+    attributes:
+      title: string(200)!
+      account: lookup(Account)!
+      project: { type: lookup(Project), label: Engagement }
+      deadlineType: term(DeadlineType)!
+      jurisdiction: lookup(Country)
+      periodEnd: date
+      dueDate: date!
+      extendedTo: date
+      status: { type: choice(DeadlineStatus)!, default: upcoming }
+      responsible: lookup(Employee)!
+      filedOn: date
+      filedBy: lookup(Employee)
+      filingReference: string(100)
+
+  IndependenceDeclaration:
+    description: A person's declaration of independence (annual, new joiner or per engagement).
+    sensitivity: restricted
+    primary: auto
+    attributes:
+      employee: lookup(Employee)!
+      declarationType: choice(DeclarationType)!
+      project: { type: lookup(Project), label: Engagement }
+      periodYear: integer
+      status: { type: choice(DeclarationStatus)!, default: pending }
+      declaredOn: datetime
+      hasInterestsToDeclare: boolean
+      details: { type: text, pii: true }
+      reviewedBy: lookup(Employee)
+      reviewedOn: date
+
+seed:
+  ProjectType:
+    - { code: ACC_AUDIT, name: Statutory audit, defaultBillingModel: fixedFee, requiresClient: true, isInternal: false, numberPrefix: "AUD-" }
+    - { code: ACC_REVIEW, name: Review engagement, defaultBillingModel: fixedFee, requiresClient: true, isInternal: false, numberPrefix: "REV-" }
+    - { code: ACC_COMPILATION, name: Compilation / accounts preparation, defaultBillingModel: fixedFee, requiresClient: true, isInternal: false, numberPrefix: "ACC-" }
+    - { code: ACC_TAX_COMPLIANCE, name: Tax compliance, defaultBillingModel: fixedFee, requiresClient: true, isInternal: false, numberPrefix: "TAX-" }
+    - { code: ACC_TAX_ADVISORY, name: Tax advisory, defaultBillingModel: timeAndMaterials, requiresClient: true, isInternal: false, numberPrefix: "TAX-" }
+    - { code: ACC_BOOKKEEPING, name: Bookkeeping, defaultBillingModel: retainer, requiresClient: true, isInternal: false, numberPrefix: "BK-" }
+    - { code: ACC_PAYROLL, name: Payroll services, defaultBillingModel: subscription, requiresClient: true, isInternal: false, numberPrefix: "PAY-" }
+    - { code: ACC_ADVISORY, name: Business advisory / transaction services, defaultBillingModel: timeAndMaterials, requiresClient: true, isInternal: false, numberPrefix: "ADV-" }
+  ProjectPhaseDefinition:
+    - { code: ACC_AUD_ACCEPT, name: Acceptance & continuance, framework: Audit, projectType: ACC_AUDIT, sequence: 1 }
+    - { code: ACC_AUD_PLAN, name: Planning & risk assessment, framework: Audit, projectType: ACC_AUDIT, sequence: 2 }
+    - { code: ACC_AUD_INTERIM, name: Interim fieldwork, framework: Audit, projectType: ACC_AUDIT, sequence: 3 }
+    - { code: ACC_AUD_FINAL, name: Final fieldwork, framework: Audit, projectType: ACC_AUDIT, sequence: 4 }
+    - { code: ACC_AUD_COMPLETE, name: Completion & review, framework: Audit, projectType: ACC_AUDIT, sequence: 5 }
+    - { code: ACC_AUD_REPORT, name: Reporting, framework: Audit, projectType: ACC_AUDIT, sequence: 6 }
+    - { code: ACC_TAX_GATHER, name: Information gathering, framework: Tax compliance, projectType: ACC_TAX_COMPLIANCE, sequence: 1 }
+    - { code: ACC_TAX_PREPARE, name: Preparation, framework: Tax compliance, projectType: ACC_TAX_COMPLIANCE, sequence: 2 }
+    - { code: ACC_TAX_REVIEW, name: Review, framework: Tax compliance, projectType: ACC_TAX_COMPLIANCE, sequence: 3 }
+    - { code: ACC_TAX_APPROVE, name: Client approval, framework: Tax compliance, projectType: ACC_TAX_COMPLIANCE, sequence: 4 }
+    - { code: ACC_TAX_FILE, name: Filing, framework: Tax compliance, projectType: ACC_TAX_COMPLIANCE, sequence: 5 }
+  ProjectRole:
+    - { code: ACC_ENG_PARTNER, name: Engagement partner }
+    - { code: ACC_EQR, name: Engagement quality reviewer }
+    - { code: ACC_MANAGER, name: Manager }
+    - { code: ACC_SENIOR, name: Senior }
+    - { code: ACC_STAFF, name: Staff accountant / associate }
+    - { code: ACC_TAX_SPECIALIST, name: Tax specialist }
+  TimeCode:
+    - { code: ACC_PLANNING, name: Planning, codeSet: Audit, isBillableDefault: true }
+    - { code: ACC_FIELDWORK, name: Fieldwork, codeSet: Audit, isBillableDefault: true }
+    - { code: ACC_REVIEW_TIME, name: Review, codeSet: Audit, isBillableDefault: true }
+    - { code: ACC_REPORTING, name: Reporting, codeSet: Audit, isBillableDefault: true }
+    - { code: ACC_TAX_PREP, name: Tax return preparation, codeSet: Tax, isBillableDefault: true }
+    - { code: ACC_BOOKS, name: Bookkeeping, codeSet: Accounts, isBillableDefault: true }
+---
+module:
+  id: accounting-hr
+  name: Accounting – HR overlay
+  kind: industry
+  version: 1.0.0
+  dependsOn: [hr]
+  description: Accountancy qualifications and CPE/CPD tracking.
+
+termSets:
+  TrainingCategory:
+    extends: true
+    terms:
+      - CPE / CPD – technical accounting
+      - CPE / CPD – ethics
+
+seed:
+  CredentialType:
+    - { code: ACC_CPA, name: CPA licence, category: professionalLicence, requiresRenewal: true, renewalPeriodMonths: 24, requiresCpd: true }
+    - { code: ACC_ACCA, name: ACCA membership, category: professionalMembership, issuingBody: ACCA, requiresRenewal: true, renewalPeriodMonths: 12, requiresCpd: true }
+    - { code: ACC_ACA, name: ICAEW Chartered Accountant (ACA), category: professionalMembership, issuingBody: ICAEW, requiresRenewal: true, renewalPeriodMonths: 12, requiresCpd: true }
+    - { code: ACC_ICAI, name: Chartered Accountant (ICAI), category: professionalMembership, issuingBody: ICAI, requiresRenewal: true, renewalPeriodMonths: 12, requiresCpd: true }
+    - { code: ACC_CIMA, name: CIMA / CGMA, category: professionalMembership, issuingBody: CIMA, requiresRenewal: true, renewalPeriodMonths: 12, requiresCpd: true }
+    - { code: ACC_CTA, name: Chartered Tax Adviser, category: professionalMembership, requiresRenewal: true, renewalPeriodMonths: 12, requiresCpd: true }
+    - { code: ACC_EA, name: Enrolled Agent, category: professionalLicence, issuingBody: IRS, requiresRenewal: true, renewalPeriodMonths: 36, requiresCpd: true }
+---
+module:
+  id: accounting-travel
+  name: Accounting – Travel overlay
+  kind: industry
+  version: 1.0.0
+  dependsOn: [travel]
+  description: Travel purposes specific to audit and accounting work.
+
+seed:
+  TravelPurpose:
+    - { code: ACC_FIELDWORK, name: Audit fieldwork at client site, requiresClient: true, isBillableDefault: true }
+    - { code: ACC_STOCKTAKE, name: Stock-take attendance, requiresClient: true, isBillableDefault: true }
+---
+module:
+  id: accounting-intranet
+  name: Accounting – Intranet overlay
+  kind: industry
+  version: 1.0.0
+  dependsOn: [intranet]
+  description: Policy categories accounting firms are required to maintain.
+
+termSets:
+  PolicyCategory:
+    extends: true
+    terms:
+      - Independence
+      - Anti-money laundering
+      - Quality management (ISQM 1)

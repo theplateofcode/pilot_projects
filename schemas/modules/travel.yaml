@@ -1,0 +1,455 @@
+# Travel Portal — trip requests, policy, bookings, traveller profiles, duty of care and expenses.
+module:
+  id: travel
+  name: Travel Portal
+  kind: module
+  version: 1.0.0
+  dependsOn: [core]
+  description: >-
+    End-to-end business travel: policy, pre-trip approval, itinerary and bookings (direct or via
+    a travel management company), traveller profiles and travel documents (locked down),
+    destination risk for duty of care, corporate card feed and expense claims with receipts.
+    Emissions per booking are captured for ESG reporting.
+
+enums:
+  TripStatus:
+    description: Lifecycle of a trip request.
+    values:
+      - { code: 1, key: draft }
+      - { code: 2, key: submitted }
+      - { code: 3, key: approved }
+      - { code: 4, key: rejected }
+      - { code: 5, key: booking, label: Booking in progress }
+      - { code: 6, key: booked }
+      - { code: 7, key: inProgress, label: Travelling }
+      - { code: 8, key: completed }
+      - { code: 9, key: cancelled }
+  TripType:
+    description: Domestic or international.
+    values:
+      - { code: 1, key: domestic }
+      - { code: 2, key: international }
+  SegmentType:
+    description: Kind of travel service.
+    values:
+      - { code: 1, key: flight }
+      - { code: 2, key: rail }
+      - { code: 3, key: hotel }
+      - { code: 4, key: carRental }
+      - { code: 5, key: transfer, label: Taxi / transfer }
+      - { code: 6, key: ferry }
+      - { code: 99, key: other }
+  CabinClass:
+    description: Class of service (air and rail).
+    values:
+      - { code: 1, key: economy, label: Economy / Standard }
+      - { code: 2, key: premiumEconomy }
+      - { code: 3, key: business, label: Business / First (rail) }
+      - { code: 4, key: first }
+  BookingStatus:
+    description: State of a booking with the supplier.
+    values:
+      - { code: 1, key: requested }
+      - { code: 2, key: held }
+      - { code: 3, key: confirmed }
+      - { code: 4, key: ticketed }
+      - { code: 5, key: changed }
+      - { code: 6, key: cancelled }
+      - { code: 7, key: refunded }
+  BookingChannel:
+    description: How the booking was made.
+    values:
+      - { code: 1, key: travelManagementCompany }
+      - { code: 2, key: onlineBookingTool }
+      - { code: 3, key: directWithSupplier }
+      - { code: 4, key: bookedByTraveller }
+  RiskLevel:
+    description: Destination risk level for duty of care.
+    values:
+      - { code: 1, key: low }
+      - { code: 2, key: medium }
+      - { code: 3, key: high }
+      - { code: 4, key: extreme }
+  SeatPreference:
+    description: Traveller seat preference.
+    values:
+      - { code: 1, key: window }
+      - { code: 2, key: aisle }
+      - { code: 3, key: noPreference }
+  DocumentGender:
+    description: Gender marker as printed on the travel document (required by airlines for APIS).
+    values:
+      - { code: 1, key: female }
+      - { code: 2, key: male }
+      - { code: 3, key: unspecified, label: Unspecified (X) }
+  TravelDocumentType:
+    description: Kind of identity or travel document.
+    values:
+      - { code: 1, key: passport }
+      - { code: 2, key: visa }
+      - { code: 3, key: nationalId }
+      - { code: 4, key: residencePermit }
+      - { code: 5, key: drivingLicence }
+      - { code: 6, key: electronicTravelAuthorisation, label: Electronic travel authorisation (ESTA/ETA) }
+  ExpenseReportStatus:
+    description: Lifecycle of an expense claim.
+    values:
+      - { code: 1, key: draft }
+      - { code: 2, key: submitted }
+      - { code: 3, key: approved }
+      - { code: 4, key: rejected }
+      - { code: 5, key: processing, label: Processing by finance }
+      - { code: 6, key: paid }
+      - { code: 7, key: cancelled }
+  PaymentMethod:
+    description: How an expense was paid.
+    values:
+      - { code: 1, key: corporateCard }
+      - { code: 2, key: personalCard }
+      - { code: 3, key: cash }
+      - { code: 4, key: directBilled, label: Direct billed to company }
+      - { code: 5, key: mileage, label: Mileage / allowance (no payment) }
+  CardTransactionStatus:
+    description: Reconciliation state of a corporate card transaction.
+    values:
+      - { code: 1, key: unmatched }
+      - { code: 2, key: matched }
+      - { code: 3, key: personal }
+      - { code: 4, key: disputed }
+      - { code: 5, key: excluded }
+
+entities:
+  # ------------------------------------------------------------- configuration
+  TravelPurpose:
+    description: Reason for travel. Industry overlays add their own (site visit, court hearing, audit fieldwork).
+    ownership: organization
+    attributes:
+      name: string(100)!
+      code: { type: string(30)!, unique: true }
+      requiresClient: boolean
+      isBillableDefault: boolean
+      description: text
+
+  TravelPolicy:
+    description: Travel rules for a legal entity over a period. Used to flag out-of-policy requests and bookings.
+    ownership: organization
+    traits: [effectiveDated]
+    attributes:
+      name: string(200)!
+      code: { type: string(30), unique: true }
+      legalEntity: lookup(LegalEntity)
+      domesticCabinClass: choice(CabinClass)!
+      internationalCabinClass: choice(CabinClass)!
+      longHaulThresholdHours: { type: "decimal(4,1)", description: Flights longer than this may use longHaulCabinClass. }
+      longHaulCabinClass: choice(CabinClass)
+      maxHotelRatePerNight: money
+      currency: lookup(Currency)!
+      minAdvanceBookingDays: integer
+      preApprovalRequired: boolean
+      preApprovalThreshold: money
+      receiptRequiredAbove: money
+      policyDocumentUrl: url
+      description: text
+
+  PerDiemRate:
+    description: Daily allowance by country/city (e.g. from GSA, HMRC or local tax authority tables).
+    ownership: organization
+    volume: medium
+    traits: [effectiveDated]
+    primary: auto
+    attributes:
+      country: lookup(Country)!
+      city: { type: string(100), description: Empty means the country default. }
+      lodgingRate: money
+      mealsRate: money
+      incidentalsRate: money
+      currency: lookup(Currency)!
+      source: string(100)
+
+  DestinationAdvisory:
+    description: Current risk advisory for a country or city (duty of care).
+    ownership: organization
+    traits: [effectiveDated]
+    primary: title
+    attributes:
+      title: string(200)!
+      country: lookup(Country)!
+      city: string(100)
+      riskLevel: choice(RiskLevel)!
+      summary: text!
+      requiresSecurityApproval: boolean
+      sourceUrl: url
+
+  CorporateRate:
+    description: Negotiated supplier rate (airline deal, hotel rate code, car rental discount).
+    ownership: organization
+    traits: [effectiveDated]
+    attributes:
+      name: string(200)!
+      supplier: lookup(Account)!
+      segmentType: choice(SegmentType)!
+      city: string(100)
+      country: lookup(Country)
+      rateCode: { type: string(50), sensitivity: confidential }
+      negotiatedRate: money
+      currency: lookup(Currency)!
+      isPreferred: boolean
+      terms: text
+
+  # ------------------------------------------------------- traveller (restricted)
+  TravellerProfile:
+    description: >-
+      Booking data for one traveller. Kept apart from Employee so it can be locked to the
+      traveller, travel bookers and the TMC. Do not store it at all if the TMC holds profiles.
+    sensitivity: restricted
+    primary: auto
+    keys: [[employee]]
+    attributes:
+      employee: { type: lookup(Employee)!, unique: true }
+      legalFirstName: { type: string(100), pii: true, description: As printed on the passport. }
+      legalMiddleName: { type: string(100), pii: true }
+      legalLastName: { type: string(100), pii: true }
+      dateOfBirth: { type: date, pii: true }
+      documentGender: { type: choice(DocumentGender), pii: true }
+      nationality: lookup(Country)
+      homeAirport: { type: string(3), description: IATA airport code. }
+      seatPreference: choice(SeatPreference)
+      mealPreference: string(100)
+      specialAssistance: { type: text, pii: true, description: Health/accessibility needs. Special-category data — collect only with consent. }
+      knownTravellerNumber: { type: string(50), pii: true }
+      emergencyContactName: { type: string(200), pii: true }
+      emergencyContactPhone: { type: phone, pii: true }
+      consentToShareWithTmc: boolean
+      consentGivenOn: datetime
+
+  TravelDocument:
+    description: Passport, visa or other document of a traveller. Store numbers encrypted or tokenised where possible.
+    sensitivity: restricted
+    primary: auto
+    attributes:
+      profile: parent(TravellerProfile)
+      documentType: choice(TravelDocumentType)!
+      documentNumber: { type: string(50)!, pii: true }
+      issuingCountry: lookup(Country)!
+      validForCountry: { type: lookup(Country), description: For visas and travel authorisations. }
+      visaType: string(50)
+      issueDate: date
+      expiryDate: date!
+      isPrimary: boolean
+      scanUrl: { type: url, description: Link to a restricted document library or vault. }
+
+  LoyaltyMembership:
+    description: Frequent flyer, hotel or rail loyalty number of a traveller.
+    sensitivity: confidential
+    primary: auto
+    attributes:
+      profile: parent(TravellerProfile)
+      programName: string(100)!
+      supplier: lookup(Account)
+      membershipNumber: string(50)!
+      tier: string(50)
+
+  # ------------------------------------------------------------------- trips
+  TripRequest:
+    description: Request to travel, approved before booking. The anchor for segments, bookings and expenses.
+    volume: medium
+    traits: [integration, classified]
+    primary: title
+    keys: [[tripNumber]]
+    attributes:
+      title: string(200)!
+      tripNumber: { type: autonumber, format: "TRP-{SEQNUM:6}" }
+      traveller: lookup(Employee)!
+      requestedBy: { type: lookup(Employee), description: Travel booker or assistant acting for the traveller. }
+      purpose: lookup(TravelPurpose)!
+      businessJustification: text!
+      tripType: choice(TripType)!
+      status: { type: choice(TripStatus)!, default: draft }
+      departureDate: date!
+      returnDate: date!
+      origin: string(100)!
+      originCountry: lookup(Country)
+      destination: string(100)!
+      destinationCountry: lookup(Country)!
+      additionalDestinations: text
+      client: lookup(Account)
+      isBillable: boolean
+      costCenter: lookup(CostCenter)!
+      policy: lookup(TravelPolicy)
+      estimatedCost: money
+      actualCost: { type: money, readOnly: true, calculated: "sum of TravelBooking.totalCost (converted)" }
+      currency: lookup(Currency)!
+      isOutOfPolicy: boolean
+      outOfPolicyReason: text
+      visaRequired: boolean
+      highestRiskLevel: { type: choice(RiskLevel), readOnly: true, calculated: "max DestinationAdvisory.riskLevel for the destinations" }
+      groupTripCode: { type: string(30), description: Same code on the requests of travellers going together. }
+      approvalRequest: lookup(ApprovalRequest)
+      submittedOn: datetime
+      notes: text
+
+  TripSegment:
+    description: Requested leg or stay of a trip (what the traveller asks for, before booking).
+    volume: medium
+    primary: auto
+    attributes:
+      trip: parent(TripRequest)
+      sequence: integer!
+      segmentType: choice(SegmentType)!
+      fromLocation: string(100)
+      toLocation: string(100)
+      startOn: { type: datetime!, description: Departure or check-in. }
+      endOn: { type: datetime, description: Arrival or check-out. }
+      preferredClass: choice(CabinClass)
+      preferences: text
+      estimatedCost: money
+      currency: lookup(Currency)
+
+  TravelBooking:
+    description: Confirmed booking (ticket, reservation) from a supplier or TMC.
+    volume: medium
+    traits: [integration]
+    primary: auto
+    attributes:
+      trip: parent(TripRequest)
+      segment: lookup(TripSegment)
+      bookingType: choice(SegmentType)!
+      status: { type: choice(BookingStatus)!, default: requested }
+      channel: choice(BookingChannel)
+      supplier: lookup(Account)
+      supplierName: { type: string(200), description: Airline/hotel name when the supplier is not an account. }
+      confirmationCode: { type: string(50), sensitivity: confidential }
+      ticketNumber: string(30)
+      serviceNumber: { type: string(20), description: Flight or train number. }
+      fromLocation: string(100)
+      toLocation: string(100)
+      startOn: datetime!
+      endOn: datetime
+      cabinClass: choice(CabinClass)
+      baseFare: money
+      taxesAndFees: money
+      totalCost: money!
+      currency: lookup(Currency)!
+      corporateRate: lookup(CorporateRate)
+      isInPolicy: boolean
+      isRefundable: boolean
+      cancellationDeadline: datetime
+      bookedOn: datetime
+      bookedBy: lookup(Employee)
+      co2Kg: { type: "decimal(10,2)", description: Estimated emissions for ESG / Scope 3 reporting. }
+      itineraryUrl: url
+
+  # ----------------------------------------------------------------- expenses
+  ExpenseCategory:
+    description: Expense type with GL mapping and limits.
+    ownership: organization
+    attributes:
+      name: string(100)!
+      code: { type: string(30)!, unique: true }
+      glAccountCode: string(30)
+      unit: { type: choice(UnitOfMeasure), description: For per-unit categories such as mileage. }
+      ratePerUnit: money
+      currency: lookup(Currency)
+      receiptRequiredAbove: money
+      maxAmountPerItem: money
+      requiresAttendees: { type: boolean, description: Client entertainment needs attendee names. }
+      isTaxReclaimable: boolean
+      description: text
+
+  ExpenseReport:
+    description: Expense claim submitted for approval and reimbursement.
+    volume: medium
+    traits: [integration]
+    primary: title
+    keys: [[reportNumber]]
+    attributes:
+      title: string(200)!
+      reportNumber: { type: autonumber, format: "EXP-{SEQNUM:6}" }
+      employee: lookup(Employee)!
+      trip: lookup(TripRequest)
+      status: { type: choice(ExpenseReportStatus)!, default: draft }
+      periodStart: date
+      periodEnd: date
+      currency: { type: lookup(Currency)!, description: Reimbursement currency. }
+      totalAmount: { type: money, readOnly: true }
+      reimbursableAmount: { type: money, readOnly: true }
+      costCenter: lookup(CostCenter)!
+      client: lookup(Account)
+      approvalRequest: lookup(ApprovalRequest)
+      submittedOn: datetime
+      approvedOn: datetime
+      paidOn: date
+      paymentReference: string(50)
+      notes: text
+
+  ExpenseLine:
+    description: One expense item with receipt, in its original currency and the claim currency.
+    volume: high
+    primary: description
+    attributes:
+      report: parent(ExpenseReport)
+      description: string(250)!
+      expenseDate: date!
+      category: lookup(ExpenseCategory)!
+      merchant: string(200)
+      paymentMethod: choice(PaymentMethod)!
+      originalAmount: { type: money!, currencyField: originalCurrency }
+      originalCurrency: lookup(Currency)!
+      exchangeRate: "decimal(18,10)"
+      amount: { type: money!, description: In the report currency. }
+      taxAmount: money
+      currency: lookup(Currency)!
+      quantity: { type: "decimal(10,2)", description: "Distance, nights or units for per-unit categories." }
+      isReimbursable: { type: boolean, readOnly: true, calculated: "paymentMethod in (personalCard, cash, mileage)" }
+      isBillable: boolean
+      client: lookup(Account)
+      attendees: { type: text, description: Names and companies for entertainment expenses. }
+      receipt: file
+      cardTransaction: lookup(CardTransaction)
+      isOutOfPolicy: boolean
+      policyNote: text
+
+  CardTransaction:
+    description: Corporate card transaction imported from the card provider feed.
+    volume: high
+    traits: [integration]
+    primary: auto
+    attributes:
+      cardholder: lookup(Employee)!
+      cardLast4: string(4)
+      transactionDate: date!
+      postedDate: date
+      merchant: string(200)!
+      merchantCategoryCode: string(4)
+      originalAmount: { type: money, currencyField: originalCurrency }
+      originalCurrency: lookup(Currency)
+      amount: money!
+      currency: lookup(Currency)!
+      status: { type: choice(CardTransactionStatus)!, default: unmatched }
+      statementReference: string(50)
+    notes:
+      - High volume. Use Dataverse (or an elastic table) or SQL rather than a SharePoint list.
+
+seed:
+  TravelPurpose:
+    - { code: CLIENT_MEETING, name: Client meeting, requiresClient: true, isBillableDefault: true }
+    - { code: CONFERENCE, name: Conference / event, requiresClient: false, isBillableDefault: false }
+    - { code: TRAINING, name: Training, requiresClient: false, isBillableDefault: false }
+    - { code: INTERNAL, name: Internal meeting, requiresClient: false, isBillableDefault: false }
+    - { code: BUS_DEV, name: Business development, requiresClient: false, isBillableDefault: false }
+    - { code: RECRUITING, name: Recruiting, requiresClient: false, isBillableDefault: false }
+  ExpenseCategory:
+    - { code: AIR, name: Airfare, glAccountCode: "6100" }
+    - { code: RAIL, name: Rail, glAccountCode: "6100" }
+    - { code: HOTEL, name: Hotel, glAccountCode: "6110" }
+    - { code: CAR_RENTAL, name: Car rental, glAccountCode: "6120" }
+    - { code: TAXI, name: Taxi / rideshare, glAccountCode: "6120" }
+    - { code: MILEAGE, name: Mileage, glAccountCode: "6125", unit: kilometre }
+    - { code: PARKING, name: Parking and tolls, glAccountCode: "6125" }
+    - { code: MEALS, name: Meals while travelling, glAccountCode: "6130" }
+    - { code: ENTERTAIN, name: Client entertainment, glAccountCode: "6140", requiresAttendees: true }
+    - { code: PER_DIEM, name: Per diem allowance, glAccountCode: "6135" }
+    - { code: VISA_FEES, name: Visa and travel document fees, glAccountCode: "6150" }
+    - { code: CONF_FEES, name: Conference fees, glAccountCode: "6160" }
+    - { code: COMMS, name: Phone and internet, glAccountCode: "6170" }
+    - { code: OTHER, name: Other, glAccountCode: "6199" }

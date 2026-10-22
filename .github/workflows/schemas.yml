@@ -1,0 +1,21 @@
+name: Schemas
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r tools/requirements.txt
+      - name: Validate schemas
+        run: python tools/schematool.py validate
+      - name: Check generated data dictionary is up to date
+        run: python tools/schematool.py docs --check
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v

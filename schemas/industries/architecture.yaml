@@ -1,0 +1,337 @@
+# Architecture firms — RIBA/AIA stages, drawing register (ISO 19650), transmittals, RFIs, site visits.
+module:
+  id: architecture-crm
+  name: Architecture – CRM overlay
+  kind: industry
+  version: 1.0.0
+  dependsOn: [crm]
+  description: Bids, competitions and frameworks pipeline for architecture practices.
+
+seed:
+  LeadSource:
+    - { code: ARC_COMPETITION, name: Design competition }
+    - { code: ARC_FRAMEWORK, name: Public framework / tender portal }
+    - { code: ARC_REF_CONSULTANT, name: Referral – engineer / contractor }
+  SalesPipeline:
+    - { code: ARC_BIDS, name: Bids & competitions }
+  PipelineStage:
+    - { pipeline: ARC_BIDS, code: ARC_B_EOI, name: Expression of interest, sequence: 1, defaultProbability: 10, isClosed: false, isWon: false }
+    - { pipeline: ARC_BIDS, code: ARC_B_PQQ, name: Pre-qualification / shortlist, sequence: 2, defaultProbability: 25, isClosed: false, isWon: false }
+    - { pipeline: ARC_BIDS, code: ARC_B_TENDER, name: Tender / competition entry, sequence: 3, defaultProbability: 40, isClosed: false, isWon: false }
+    - { pipeline: ARC_BIDS, code: ARC_B_INTERVIEW, name: Interview, sequence: 4, defaultProbability: 60, isClosed: false, isWon: false }
+    - { pipeline: ARC_BIDS, code: ARC_B_AWARDED, name: Awarded, sequence: 5, defaultProbability: 100, isClosed: true, isWon: true }
+    - { pipeline: ARC_BIDS, code: ARC_B_UNSUCCESSFUL, name: Unsuccessful, sequence: 6, defaultProbability: 0, isClosed: true, isWon: false }
+---
+module:
+  id: architecture-work
+  name: Architecture – Project delivery overlay
+  kind: industry
+  version: 1.0.0
+  dependsOn: [work]
+  description: >-
+    Architecture project data (site, sector, areas, construction budget, planning), RIBA Plan of
+    Work 2020 and AIA phases, an ISO 19650-style drawing register with revisions and
+    transmittals, RFIs and site visit reports.
+
+enums:
+  ProcurementRoute:
+    description: How the building contract is procured.
+    values:
+      - { code: 1, key: traditional }
+      - { code: 2, key: designAndBuild }
+      - { code: 3, key: constructionManagement }
+      - { code: 4, key: managementContracting }
+      - { code: 5, key: twoStageTender }
+      - { code: 6, key: frameworkCallOff }
+  PlanningStatus:
+    description: Status of planning permission / building permit.
+    values:
+      - { code: 1, key: notRequired }
+      - { code: 2, key: preApplication }
+      - { code: 3, key: submitted }
+      - { code: 4, key: approved }
+      - { code: 5, key: approvedWithConditions }
+      - { code: 6, key: refused }
+      - { code: 7, key: appeal }
+  DrawingType:
+    description: Kind of drawing or model.
+    values:
+      - { code: 1, key: plan }
+      - { code: 2, key: section }
+      - { code: 3, key: elevation }
+      - { code: 4, key: detail }
+      - { code: 5, key: schedule }
+      - { code: 6, key: model }
+      - { code: 7, key: specification }
+      - { code: 8, key: visualisation }
+  SuitabilityCode:
+    description: Information container status (ISO 19650 / UK National Annex suitability codes).
+    values:
+      - { code: 1, key: s0, label: S0 – Work in progress }
+      - { code: 2, key: s1, label: S1 – Suitable for coordination }
+      - { code: 3, key: s2, label: S2 – Suitable for information }
+      - { code: 4, key: s3, label: S3 – Suitable for review & comment }
+      - { code: 5, key: s4, label: S4 – Suitable for stage approval }
+      - { code: 6, key: a, label: A – Authorised / for construction }
+      - { code: 7, key: b, label: B – Partially authorised }
+      - { code: 8, key: cr, label: CR – As constructed record }
+  TransmittalPurpose:
+    description: Why information is issued.
+    values:
+      - { code: 1, key: forInformation }
+      - { code: 2, key: forComment }
+      - { code: 3, key: forApproval }
+      - { code: 4, key: forTender }
+      - { code: 5, key: forPlanning }
+      - { code: 6, key: forConstruction }
+  TransmittalMethod:
+    description: How information is issued.
+    values:
+      - { code: 1, key: commonDataEnvironment }
+      - { code: 2, key: email }
+      - { code: 3, key: clientPortal }
+      - { code: 4, key: hardCopy }
+  RfiStatus:
+    description: State of a request for information.
+    values:
+      - { code: 1, key: open }
+      - { code: 2, key: answered }
+      - { code: 3, key: closed }
+      - { code: 4, key: void }
+
+termSets:
+  BuildingSector:
+    description: Market sector of an architecture project.
+    terms:
+      - Residential
+      - Commercial office
+      - Retail
+      - Education
+      - Healthcare
+      - Hospitality
+      - Cultural & civic
+      - Industrial & logistics
+      - Mixed use
+      - Infrastructure
+  Discipline:
+    description: Design discipline that produces a drawing.
+    terms:
+      - Architecture
+      - Structural
+      - Mechanical, electrical & plumbing
+      - Civil
+      - Landscape
+      - Interiors
+      - Fire
+      - Acoustics
+  SustainabilityStandard:
+    description: Sustainability or wellbeing certification targeted.
+    terms:
+      - BREEAM
+      - LEED
+      - WELL
+      - Passivhaus
+      - NABERS
+      - IGBC / GRIHA
+      - None
+
+extend:
+  Project:
+    attributes:
+      siteAddress: address
+      sector: term(BuildingSector)
+      procurementRoute: choice(ProcurementRoute)
+      contractForm: { type: string(100), description: "Appointment form, e.g. RIBA PSC 2020, AIA B101." }
+      grossFloorArea: { type: "decimal(12,2)", description: Square metres. }
+      constructionBudget: { type: money, description: Estimated construction cost; basis for percentage fees. }
+      feePercentOfConstruction: percent
+      planningReference: string(50)
+      planningStatus: choice(PlanningStatus)
+      sustainabilityTarget: term(SustainabilityStandard)
+      bimRequired: boolean
+      isPrincipalDesigner: { type: boolean, description: Firm holds the principal designer (health & safety) duty. }
+
+entities:
+  Drawing:
+    description: Drawing or model in the project's information register, named to ISO 19650 conventions.
+    volume: high
+    primary: title
+    keys: [[drawingNumber]]
+    attributes:
+      project: parent(Project)
+      drawingNumber: { type: string(60)!, unique: true, description: "Project-Originator-Volume-Level-Type-Role-Number." }
+      title: string(250)!
+      discipline: term(Discipline)
+      drawingType: choice(DrawingType)
+      phase: lookup(ProjectPhase)
+      scale: string(20)
+      paperSize: string(10)
+      currentRevision: { type: string(10), readOnly: true }
+      currentSuitability: { type: choice(SuitabilityCode), readOnly: true }
+      lastIssuedOn: { type: date, readOnly: true }
+      fileUrl: url
+
+  DrawingRevision:
+    description: One revision of a drawing with its suitability and sign-off.
+    volume: high
+    primary: auto
+    keys: [[drawing, revision]]
+    attributes:
+      drawing: parent(Drawing)
+      revision: { type: string(10)!, description: "e.g. P01, P02, C01." }
+      revisionDate: date!
+      description: string(250)!
+      suitability: choice(SuitabilityCode)!
+      preparedBy: lookup(Employee)
+      checkedBy: lookup(Employee)
+      approvedBy: lookup(Employee)
+      fileUrl: url
+
+  Transmittal:
+    description: Formal issue of drawings/documents to a client, consultant or contractor.
+    volume: medium
+    primary: subject
+    keys: [[transmittalNumber]]
+    attributes:
+      subject: string(200)!
+      transmittalNumber: { type: autonumber, format: "TX-{SEQNUM:5}" }
+      project: parent(Project)
+      recipientAccount: lookup(Account)!
+      recipientContact: lookup(Contact)
+      purpose: choice(TransmittalPurpose)!
+      method: choice(TransmittalMethod)!
+      issuedOn: date!
+      issuedBy: lookup(Employee)
+      acknowledgedOn: date
+      notes: text
+
+  TransmittalItem:
+    description: Drawing revision included in a transmittal.
+    volume: high
+    primary: auto
+    attributes:
+      transmittal: parent(Transmittal)
+      drawingRevision: lookup(DrawingRevision)!
+      fileFormat: { type: string(20), description: "PDF, DWG, IFC…" }
+      copies: integer
+
+  Rfi:
+    description: Request for information raised during design or construction.
+    label: RFI
+    plural: RFIs
+    volume: medium
+    primary: subject
+    keys: [[rfiNumber]]
+    attributes:
+      subject: string(200)!
+      rfiNumber: { type: autonumber, format: "RFI-{SEQNUM:4}" }
+      project: parent(Project)
+      question: text!
+      raisedByContact: lookup(Contact)
+      raisedByEmployee: lookup(Employee)
+      raisedOn: date!
+      responseDue: date
+      response: text
+      respondedBy: lookup(Employee)
+      respondedOn: date
+      status: { type: choice(RfiStatus)!, default: open }
+      costImpact: boolean
+      scheduleImpact: boolean
+      relatedDrawing: lookup(Drawing)
+
+  SiteVisit:
+    description: Site inspection with observations and actions.
+    volume: medium
+    primary: purpose
+    attributes:
+      project: parent(Project)
+      purpose: string(200)!
+      visitDate: date!
+      leadVisitor: lookup(Employee)!
+      otherVisitors: multilookup(Employee)
+      weather: string(100)
+      observations: richtext
+      actionsRequired: richtext
+      photosUrl: url
+      reportIssuedOn: date
+
+seed:
+  ProjectType:
+    - { code: ARC_NEW_BUILD, name: New build, defaultBillingModel: percentageOfValue, requiresClient: true, isInternal: false }
+    - { code: ARC_REFURB, name: Refurbishment / retrofit, defaultBillingModel: percentageOfValue, requiresClient: true, isInternal: false }
+    - { code: ARC_INTERIORS, name: Interior fit-out, defaultBillingModel: fixedFee, requiresClient: true, isInternal: false }
+    - { code: ARC_MASTERPLAN, name: Masterplanning, defaultBillingModel: fixedFee, requiresClient: true, isInternal: false }
+    - { code: ARC_FEASIBILITY, name: Feasibility study, defaultBillingModel: fixedFee, requiresClient: true, isInternal: false }
+    - { code: ARC_COMPETITION, name: Design competition, defaultBillingModel: nonBillable, requiresClient: false, isInternal: true }
+  ProjectPhaseDefinition:
+    - { code: RIBA_0, name: 0 – Strategic definition, framework: RIBA 2020, sequence: 0 }
+    - { code: RIBA_1, name: 1 – Preparation & briefing, framework: RIBA 2020, sequence: 1, defaultFeePercent: 5 }
+    - { code: RIBA_2, name: 2 – Concept design, framework: RIBA 2020, sequence: 2, defaultFeePercent: 15 }
+    - { code: RIBA_3, name: 3 – Spatial coordination, framework: RIBA 2020, sequence: 3, defaultFeePercent: 20 }
+    - { code: RIBA_4, name: 4 – Technical design, framework: RIBA 2020, sequence: 4, defaultFeePercent: 30 }
+    - { code: RIBA_5, name: 5 – Manufacturing & construction, framework: RIBA 2020, sequence: 5, defaultFeePercent: 25 }
+    - { code: RIBA_6, name: 6 – Handover, framework: RIBA 2020, sequence: 6, defaultFeePercent: 5 }
+    - { code: RIBA_7, name: 7 – Use, framework: RIBA 2020, sequence: 7 }
+    - { code: AIA_SD, name: Schematic design, framework: AIA, sequence: 1, defaultFeePercent: 15 }
+    - { code: AIA_DD, name: Design development, framework: AIA, sequence: 2, defaultFeePercent: 20 }
+    - { code: AIA_CD, name: Construction documents, framework: AIA, sequence: 3, defaultFeePercent: 40 }
+    - { code: AIA_BN, name: Bidding / negotiation, framework: AIA, sequence: 4, defaultFeePercent: 5 }
+    - { code: AIA_CA, name: Construction administration, framework: AIA, sequence: 5, defaultFeePercent: 20 }
+  ProjectRole:
+    - { code: ARC_PRINCIPAL, name: Principal / director }
+    - { code: ARC_PROJECT_ARCH, name: Project architect }
+    - { code: ARC_ARCHITECT, name: Architect }
+    - { code: ARC_ASSISTANT, name: Architectural assistant }
+    - { code: ARC_TECHNOLOGIST, name: Architectural technologist }
+    - { code: ARC_INTERIOR, name: Interior designer }
+    - { code: ARC_BIM, name: BIM coordinator }
+  WorkItemType:
+    - { code: ARC_DRAWING_PKG, name: Drawing package, category: deliverable, allowsChildren: true }
+    - { code: ARC_DESIGN_REVIEW, name: Design review, category: task, allowsChildren: false }
+    - { code: ARC_SUBMISSION, name: Planning / permit submission, category: deliverable, allowsChildren: true }
+    - { code: ARC_SITE_INSPECTION, name: Site inspection, category: task, allowsChildren: false }
+  TimeCode:
+    - { code: ARC_DESIGN, name: Design, codeSet: Architecture, isBillableDefault: true }
+    - { code: ARC_COORDINATION, name: Coordination with consultants, codeSet: Architecture, isBillableDefault: true }
+    - { code: ARC_PLANNING_APP, name: Planning application, codeSet: Architecture, isBillableDefault: true }
+    - { code: ARC_SITE, name: Site / contract administration, codeSet: Architecture, isBillableDefault: true }
+    - { code: ARC_VISUALS, name: Visualisation, codeSet: Architecture, isBillableDefault: true }
+---
+module:
+  id: architecture-hr
+  name: Architecture – HR overlay
+  kind: industry
+  version: 1.0.0
+  dependsOn: [hr]
+  description: Architect registration and sustainability accreditations.
+
+seed:
+  CredentialType:
+    - { code: ARC_REGISTERED, name: Registered architect (ARB / NCARB / CoA), category: professionalLicence, requiresRenewal: true, renewalPeriodMonths: 12, requiresCpd: true }
+    - { code: ARC_RIBA_AIA, name: RIBA / AIA membership, category: professionalMembership, requiresRenewal: true, renewalPeriodMonths: 12, requiresCpd: true }
+    - { code: ARC_LEED_AP, name: LEED AP, category: certification, issuingBody: GBCI, requiresRenewal: true, renewalPeriodMonths: 24, requiresCpd: true }
+    - { code: ARC_PASSIVHAUS, name: Certified Passivhaus Designer, category: certification }
+    - { code: ARC_SITE_SAFETY, name: Construction site safety card, category: certification, requiresRenewal: true, renewalPeriodMonths: 60 }
+  Skill:
+    - { code: ARC_REVIT, name: Autodesk Revit, category: Tools & software }
+    - { code: ARC_AUTOCAD, name: AutoCAD, category: Tools & software }
+    - { code: ARC_RHINO, name: Rhino / Grasshopper, category: Tools & software }
+    - { code: ARC_RENDERING, name: Rendering (Enscape / V-Ray), category: Tools & software }
+    - { code: ARC_BIM, name: BIM coordination (ISO 19650), category: Industry / domain }
+---
+module:
+  id: architecture-travel
+  name: Architecture – Travel overlay
+  kind: industry
+  version: 1.0.0
+  dependsOn: [travel, architecture-work]
+  description: Site-visit travel linked to site visit reports.
+
+extend:
+  SiteVisit:
+    attributes:
+      tripRequest: lookup(TripRequest)
+
+seed:
+  TravelPurpose:
+    - { code: ARC_SITE_VISIT, name: Site visit, requiresClient: true, isBillableDefault: true }

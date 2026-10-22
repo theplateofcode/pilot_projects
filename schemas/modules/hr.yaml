@@ -1,0 +1,953 @@
+# HR — organisation design, employment history, leave, onboarding, hiring, performance, learning, skills.
+module:
+  id: hr
+  name: HR
+  kind: module
+  version: 1.0.0
+  dependsOn: [core]
+  description: >-
+    Human resources for small and mid-size firms: positions and job architecture, effective-dated
+    employment and assignment history, restricted compensation and personal data, leave and
+    absence, onboarding/offboarding checklists, recruitment, performance and goals, training,
+    professional credentials with CPD, and skills for resourcing. Payroll, benefits and
+    diversity data stay out of scope by design (see notes).
+
+enums:
+  EmploymentType:
+    description: Working pattern.
+    values:
+      - { code: 1, key: fullTime }
+      - { code: 2, key: partTime }
+      - { code: 3, key: casual }
+  ContractType:
+    description: Contractual basis of employment.
+    values:
+      - { code: 1, key: permanent }
+      - { code: 2, key: fixedTerm }
+      - { code: 3, key: contractor }
+      - { code: 4, key: internship }
+      - { code: 5, key: apprenticeship }
+  WorkArrangement:
+    description: Where the person normally works.
+    values:
+      - { code: 1, key: onsite }
+      - { code: 2, key: hybrid }
+      - { code: 3, key: remote }
+  PositionStatus:
+    description: State of a budgeted position.
+    values:
+      - { code: 1, key: open }
+      - { code: 2, key: filled }
+      - { code: 3, key: frozen }
+      - { code: 4, key: closed }
+  AssignmentReason:
+    description: Why a new job assignment row was created.
+    values:
+      - { code: 1, key: hire }
+      - { code: 2, key: rehire }
+      - { code: 3, key: promotion }
+      - { code: 4, key: transfer }
+      - { code: 5, key: lateralMove }
+      - { code: 6, key: demotion }
+      - { code: 7, key: reorganisation }
+      - { code: 8, key: managerChange }
+      - { code: 9, key: hoursChange }
+      - { code: 10, key: locationChange }
+      - { code: 11, key: returnFromLeave }
+      - { code: 12, key: termination }
+      - { code: 13, key: correction }
+  TerminationType:
+    description: Kind of leaving.
+    values:
+      - { code: 1, key: resignation }
+      - { code: 2, key: dismissal }
+      - { code: 3, key: redundancy }
+      - { code: 4, key: retirement }
+      - { code: 5, key: endOfContract }
+      - { code: 6, key: mutualAgreement }
+      - { code: 7, key: deceased }
+  CompensationBasis:
+    description: Unit the base pay is expressed in.
+    values:
+      - { code: 1, key: annual }
+      - { code: 2, key: monthly }
+      - { code: 3, key: daily }
+      - { code: 4, key: hourly }
+  CompensationReason:
+    description: Why base pay changed.
+    values:
+      - { code: 1, key: newHire }
+      - { code: 2, key: annualReview }
+      - { code: 3, key: promotion }
+      - { code: 4, key: marketAdjustment }
+      - { code: 5, key: roleChange }
+      - { code: 6, key: correction }
+  Gender:
+    description: Self-identified gender (optional, restricted).
+    values:
+      - { code: 1, key: woman }
+      - { code: 2, key: man }
+      - { code: 3, key: nonBinary }
+      - { code: 4, key: selfDescribed }
+      - { code: 5, key: preferNotToSay }
+  LeaveUnit:
+    description: Unit leave is booked and balanced in.
+    values:
+      - { code: 1, key: days }
+      - { code: 2, key: hours }
+  AccrualFrequency:
+    description: How entitlement builds up.
+    values:
+      - { code: 1, key: upfrontAnnually, label: Up front, once a year }
+      - { code: 2, key: monthly }
+      - { code: 3, key: perPayPeriod }
+      - { code: 4, key: none }
+  LeaveRequestStatus:
+    description: Lifecycle of a leave request.
+    values:
+      - { code: 1, key: draft }
+      - { code: 2, key: submitted }
+      - { code: 3, key: approved }
+      - { code: 4, key: rejected }
+      - { code: 5, key: cancelled }
+      - { code: 6, key: taken }
+  ChecklistType:
+    description: Kind of people-process checklist.
+    values:
+      - { code: 1, key: onboarding }
+      - { code: 2, key: offboarding }
+      - { code: 3, key: crossboarding, label: Internal move }
+  ChecklistAssigneeRole:
+    description: Who performs a checklist task; resolved to a person when the checklist starts.
+    values:
+      - { code: 1, key: hr }
+      - { code: 2, key: manager }
+      - { code: 3, key: it }
+      - { code: 4, key: facilities }
+      - { code: 5, key: finance }
+      - { code: 6, key: employee }
+      - { code: 7, key: buddy }
+  ChecklistStatus:
+    description: Progress of a whole checklist.
+    values:
+      - { code: 1, key: notStarted }
+      - { code: 2, key: inProgress }
+      - { code: 3, key: completed }
+      - { code: 4, key: cancelled }
+  ChecklistTaskStatus:
+    description: Progress of one checklist task.
+    values:
+      - { code: 1, key: notStarted }
+      - { code: 2, key: inProgress }
+      - { code: 3, key: completed }
+      - { code: 4, key: blocked }
+      - { code: 5, key: notApplicable }
+  RequisitionReason:
+    description: Why a hire is needed.
+    values:
+      - { code: 1, key: newHeadcount }
+      - { code: 2, key: replacement }
+      - { code: 3, key: temporaryCover }
+  RequisitionStatus:
+    description: Lifecycle of a job requisition.
+    values:
+      - { code: 1, key: draft }
+      - { code: 2, key: pendingApproval }
+      - { code: 3, key: open }
+      - { code: 4, key: onHold }
+      - { code: 5, key: filled }
+      - { code: 6, key: cancelled }
+  CandidateSource:
+    description: Where a candidate came from.
+    values:
+      - { code: 1, key: careersSite }
+      - { code: 2, key: jobBoard }
+      - { code: 3, key: linkedIn }
+      - { code: 4, key: employeeReferral }
+      - { code: 5, key: agency }
+      - { code: 6, key: university }
+      - { code: 7, key: directSourcing }
+      - { code: 8, key: internal }
+      - { code: 9, key: event }
+  ApplicationStage:
+    description: Stage of a job application.
+    values:
+      - { code: 1, key: applied }
+      - { code: 2, key: screening }
+      - { code: 3, key: assessment }
+      - { code: 4, key: interview }
+      - { code: 5, key: offer }
+      - { code: 6, key: hired }
+      - { code: 7, key: rejected }
+      - { code: 8, key: withdrawn }
+  RejectionReason:
+    description: Why an application did not proceed.
+    values:
+      - { code: 1, key: notQualified }
+      - { code: 2, key: strongerCandidate }
+      - { code: 3, key: salaryExpectations }
+      - { code: 4, key: location }
+      - { code: 5, key: failedAssessment }
+      - { code: 6, key: positionFilled }
+      - { code: 7, key: positionCancelled }
+      - { code: 99, key: other }
+  InterviewType:
+    description: Interview format.
+    values:
+      - { code: 1, key: phone }
+      - { code: 2, key: video }
+      - { code: 3, key: onsite }
+      - { code: 4, key: technical }
+      - { code: 5, key: panel }
+      - { code: 6, key: caseStudy }
+  InterviewStatus:
+    description: State of a scheduled interview.
+    values:
+      - { code: 1, key: scheduled }
+      - { code: 2, key: completed }
+      - { code: 3, key: cancelled }
+      - { code: 4, key: noShow }
+  HiringRecommendation:
+    description: Interviewer's recommendation.
+    values:
+      - { code: 1, key: strongHire }
+      - { code: 2, key: hire }
+      - { code: 3, key: noHire }
+      - { code: 4, key: strongNoHire }
+  OfferStatus:
+    description: Lifecycle of a job offer.
+    values:
+      - { code: 1, key: draft }
+      - { code: 2, key: pendingApproval }
+      - { code: 3, key: extended }
+      - { code: 4, key: accepted }
+      - { code: 5, key: declined }
+      - { code: 6, key: rescinded }
+      - { code: 7, key: expired }
+  ReviewCycleType:
+    description: Kind of review cycle.
+    values:
+      - { code: 1, key: annual }
+      - { code: 2, key: midYear }
+      - { code: 3, key: quarterly }
+      - { code: 4, key: probation }
+      - { code: 5, key: projectEnd }
+  ReviewCycleStatus:
+    description: Lifecycle of a review cycle.
+    values:
+      - { code: 1, key: planned }
+      - { code: 2, key: open }
+      - { code: 3, key: calibration }
+      - { code: 4, key: closed }
+  ReviewStatus:
+    description: Progress of one person's review.
+    values:
+      - { code: 1, key: notStarted }
+      - { code: 2, key: selfAssessment }
+      - { code: 3, key: managerAssessment }
+      - { code: 4, key: calibration }
+      - { code: 5, key: completed }
+      - { code: 6, key: cancelled }
+  GoalCategory:
+    description: Kind of goal.
+    values:
+      - { code: 1, key: business }
+      - { code: 2, key: client }
+      - { code: 3, key: development }
+      - { code: 4, key: team }
+      - { code: 5, key: compliance }
+  GoalStatus:
+    description: Progress of a goal.
+    values:
+      - { code: 1, key: draft }
+      - { code: 2, key: active }
+      - { code: 3, key: achieved }
+      - { code: 4, key: partiallyAchieved }
+      - { code: 5, key: notAchieved }
+      - { code: 6, key: cancelled }
+  CredentialCategory:
+    description: Kind of professional credential.
+    values:
+      - { code: 1, key: professionalLicence }
+      - { code: 2, key: certification }
+      - { code: 3, key: professionalMembership }
+      - { code: 4, key: academicDegree }
+      - { code: 5, key: securityClearance }
+  CredentialStatus:
+    description: Standing of a credential.
+    values:
+      - { code: 1, key: pending }
+      - { code: 2, key: active }
+      - { code: 3, key: expired }
+      - { code: 4, key: suspended }
+      - { code: 5, key: revoked }
+  DeliveryMethod:
+    description: How training is delivered.
+    values:
+      - { code: 1, key: classroom }
+      - { code: 2, key: virtualClassroom }
+      - { code: 3, key: eLearning }
+      - { code: 4, key: onTheJob }
+      - { code: 5, key: conference }
+      - { code: 6, key: selfStudy }
+  TrainingStatus:
+    description: Progress of a training assignment.
+    values:
+      - { code: 1, key: assigned }
+      - { code: 2, key: enrolled }
+      - { code: 3, key: inProgress }
+      - { code: 4, key: completed }
+      - { code: 5, key: failed }
+      - { code: 6, key: expired }
+      - { code: 7, key: waived }
+  ProficiencyLevel:
+    description: Skill proficiency.
+    values:
+      - { code: 1, key: basic }
+      - { code: 2, key: intermediate }
+      - { code: 3, key: advanced }
+      - { code: 4, key: expert }
+  SkillSource:
+    description: How a skill was recorded.
+    values:
+      - { code: 1, key: selfAssessed }
+      - { code: 2, key: managerAssessed }
+      - { code: 3, key: certified }
+      - { code: 4, key: inferred, label: Inferred (from work history / AI) }
+
+termSets:
+  TrainingCategory:
+    description: Category of training courses.
+    terms:
+      - Technical
+      - Professional skills
+      - Leadership & management
+      - Compliance
+      - Health & safety
+      - Onboarding
+      - Wellbeing
+  SkillCategory:
+    description: Category of skills in the skills catalogue.
+    terms:
+      - Technical
+      - Industry / domain
+      - Professional skills
+      - Languages
+      - Tools & software
+      - Leadership
+
+entities:
+  # ---------------------------------------------------------- job architecture
+  JobFamily:
+    description: Group of related jobs (e.g. client delivery, finance, IT).
+    ownership: organization
+    plural: Job Families
+    attributes:
+      name: string(100)!
+      code: { type: string(30)!, unique: true }
+      description: text
+
+  Grade:
+    description: Pay grade / career level with salary band.
+    ownership: organization
+    sensitivity: confidential
+    attributes:
+      name: string(100)!
+      code: { type: string(30)!, unique: true }
+      level: integer!
+      legalEntity: lookup(LegalEntity)
+      salaryMin: money
+      salaryMid: money
+      salaryMax: money
+      currency: lookup(Currency)
+
+  JobProfile:
+    description: Standard job definition (title, family, grade, responsibilities, required credentials).
+    ownership: organization
+    attributes:
+      name: string(150)!
+      code: { type: string(30), unique: true }
+      jobFamily: lookup(JobFamily)
+      grade: lookup(Grade)
+      isPeopleManager: boolean
+      overtimeEligible: boolean
+      requiredCredentials: multilookup(CredentialType)
+      description: richtext
+      responsibilities: richtext
+
+  Position:
+    description: Budgeted seat in the organisation that a person fills. Enables vacancy and headcount planning.
+    ownership: organization
+    traits: [integration]
+    primary: title
+    keys: [[positionNumber]]
+    attributes:
+      title: string(150)!
+      positionNumber: { type: autonumber, format: "POS-{SEQNUM:6}" }
+      jobProfile: lookup(JobProfile)!
+      orgUnit: lookup(OrgUnit)!
+      legalEntity: lookup(LegalEntity)!
+      reportsTo: lookup(Position)
+      office: lookup(Office)
+      costCenter: lookup(CostCenter)
+      fte: "decimal(4,2)!"
+      status: { type: choice(PositionStatus)!, default: open }
+      isBudgeted: boolean
+      currentIncumbent: { type: lookup(Employee), readOnly: true }
+      openSince: date
+
+  # --------------------------------------------------- employment (system of record)
+  Employment:
+    description: An employment contract with a legal entity. A rehire creates a new row.
+    plural: Employment Records
+    sensitivity: confidential
+    traits: [integration]
+    primary: auto
+    attributes:
+      employee: lookup(Employee)!
+      legalEntity: lookup(LegalEntity)!
+      employmentType: choice(EmploymentType)!
+      contractType: choice(ContractType)!
+      startDate: date!
+      continuousServiceDate: date
+      probationEndDate: date
+      endDate: date
+      noticePeriodDays: integer
+      terminationType: choice(TerminationType)
+      terminationReason: string(200)
+      lastWorkingDay: date
+      eligibleForRehire: boolean
+      contractUrl: url
+
+  JobAssignment:
+    description: >-
+      Effective-dated job, reporting line and location of a person. The row with no validTo is
+      current and is projected onto the core Employee directory record.
+    volume: medium
+    traits: [effectiveDated, integration]
+    primary: auto
+    attributes:
+      employee: parent(Employee)
+      employment: lookup(Employment)!
+      position: lookup(Position)
+      jobProfile: lookup(JobProfile)!
+      jobTitle: string(150)!
+      grade: lookup(Grade)
+      orgUnit: lookup(OrgUnit)!
+      manager: lookup(Employee)
+      office: lookup(Office)
+      costCenter: lookup(CostCenter)
+      fte: "decimal(4,2)!"
+      weeklyHours: "decimal(5,2)"
+      workArrangement: choice(WorkArrangement)
+      changeReason: choice(AssignmentReason)!
+      isPrimary: { type: boolean, default: true }
+
+  Compensation:
+    description: Effective-dated base pay. Restricted to HR, reward and the line of approval.
+    plural: Compensation Records
+    sensitivity: restricted
+    traits: [effectiveDated, integration]
+    primary: auto
+    attributes:
+      employee: parent(Employee)
+      basis: choice(CompensationBasis)!
+      amount: money!
+      currency: lookup(Currency)!
+      grade: lookup(Grade)
+      compaRatio: { type: "decimal(5,2)", readOnly: true, calculated: "annualised amount ÷ grade salaryMid" }
+      changePercent: { type: percent, readOnly: true }
+      changeReason: choice(CompensationReason)!
+      approvalRequest: lookup(ApprovalRequest)
+      notes: text
+    notes:
+      - Bonus, equity and benefits are out of scope for v1; payroll stays in the payroll system and links via externalId.
+
+  EmployeePersonalDetails:
+    description: >-
+      Personal (non-directory) data of an employee in its own table so it can be secured
+      separately on every platform — SharePoint has no column-level security.
+    plural: Employee Personal Details
+    sensitivity: restricted
+    primary: auto
+    keys: [[employee]]
+    attributes:
+      employee: { type: lookup(Employee)!, unique: true }
+      legalFirstName: { type: string(100), pii: true }
+      legalMiddleName: { type: string(100), pii: true }
+      legalLastName: { type: string(100), pii: true }
+      dateOfBirth: { type: date, pii: true }
+      gender: { type: choice(Gender), pii: true }
+      nationality: lookup(Country)
+      personalEmail: { type: email, pii: true }
+      personalPhone: { type: phone, pii: true }
+      homeAddress: { type: address, pii: true }
+      nationalIdReference: { type: string(50), pii: true, description: Tokenised reference or last digits only — never the full number. }
+      workPermitRequired: boolean
+      workPermitExpiry: date
+    notes:
+      - Deliberately not stored — bank details (payroll system), health data, ethnicity, religion, disability. Collect equality data through anonymous surveys or a separate consented store.
+
+  EmergencyContact:
+    description: Person to contact in an emergency.
+    sensitivity: confidential
+    attributes:
+      employee: parent(Employee)
+      name: { type: string(200)!, pii: true }
+      relationship: string(50)!
+      phone: { type: phone!, pii: true }
+      alternatePhone: { type: phone, pii: true }
+      email: { type: email, pii: true }
+      isPrimary: boolean
+
+  # --------------------------------------------------------------------- leave
+  LeaveType:
+    description: Kind of leave (annual, sick, parental, study…).
+    ownership: organization
+    attributes:
+      name: string(100)!
+      code: { type: string(30)!, unique: true }
+      unit: { type: choice(LeaveUnit)!, default: days }
+      isPaid: boolean
+      requiresApproval: { type: boolean, default: true }
+      deductsFromBalance: { type: boolean, default: true }
+      requiresAttachmentAfterDays: { type: integer, description: "e.g. a medical certificate after 3 days." }
+      allowNegativeBalance: boolean
+      isPrivate: { type: boolean, description: Shown only as "Out of office" to colleagues (e.g. sick leave). }
+      calendarColor: { type: string(7), description: Hex colour for calendars. }
+
+  LeavePolicy:
+    description: Entitlement rules for a leave type in a legal entity/country.
+    ownership: organization
+    traits: [effectiveDated]
+    attributes:
+      name: string(200)!
+      leaveType: lookup(LeaveType)!
+      legalEntity: lookup(LegalEntity)
+      country: lookup(Country)
+      employmentType: choice(EmploymentType)
+      entitlementPerYear: "decimal(6,2)!"
+      accrualFrequency: choice(AccrualFrequency)!
+      maxCarryOver: "decimal(6,2)"
+      carryOverExpiryMonths: integer
+      waitingPeriodDays: integer
+      proRataForPartTime: { type: boolean, default: true }
+      minNoticeDays: integer
+      yearStartMonth: { type: integer, default: 1, min: 1, max: 12 }
+
+  LeaveBalance:
+    description: Balance of one leave type for one person for one leave year.
+    volume: medium
+    primary: auto
+    keys: [[employee, leaveType, periodStart]]
+    attributes:
+      employee: lookup(Employee)!
+      leaveType: lookup(LeaveType)!
+      periodStart: date!
+      periodEnd: date!
+      entitlement: "decimal(6,2)"
+      carriedOver: "decimal(6,2)"
+      accrued: "decimal(6,2)"
+      adjustment: "decimal(6,2)"
+      taken: { type: "decimal(6,2)", readOnly: true }
+      pending: { type: "decimal(6,2)", readOnly: true }
+      available: { type: "decimal(6,2)", readOnly: true, calculated: "accrued + carriedOver + adjustment − taken − pending" }
+      lastCalculatedOn: datetime
+
+  LeaveRequest:
+    description: Request for time off. Dates are date-only to avoid time-zone shifts.
+    volume: medium
+    sensitivity: confidential
+    primary: auto
+    attributes:
+      employee: lookup(Employee)!
+      leaveType: lookup(LeaveType)!
+      startDate: date!
+      endDate: date!
+      startsHalfDay: { type: boolean, description: Starts in the afternoon. }
+      endsHalfDay: { type: boolean, description: Ends at midday. }
+      duration: { type: "decimal(6,2)!", description: In the leave type's unit; excludes weekends and holidays. }
+      status: { type: choice(LeaveRequestStatus)!, default: draft }
+      reason: text
+      coverBy: lookup(Employee)
+      supportingDocument: file
+      approvalRequest: lookup(ApprovalRequest)
+      submittedOn: datetime
+
+  # ----------------------------------------------------- onboarding/offboarding
+  ChecklistTemplate:
+    description: Reusable onboarding, offboarding or internal-move checklist.
+    ownership: organization
+    attributes:
+      name: string(200)!
+      checklistType: choice(ChecklistType)!
+      orgUnit: { type: lookup(OrgUnit), description: Empty means firm-wide. }
+      legalEntity: lookup(LegalEntity)
+      description: text
+
+  ChecklistTemplateTask:
+    description: Task in a checklist template, scheduled relative to the start or leaving date.
+    ownership: organization
+    primary: title
+    attributes:
+      template: parent(ChecklistTemplate)
+      title: string(200)!
+      assigneeRole: choice(ChecklistAssigneeRole)!
+      dueOffsetDays: { type: integer!, description: Days relative to the anchor date (negative = before). }
+      sequence: integer
+      isMandatory: boolean
+      linkUrl: { type: url, description: Form or system used to do the task. }
+      description: text
+
+  EmployeeChecklist:
+    description: Checklist instance for one person.
+    primary: auto
+    attributes:
+      employee: lookup(Employee)!
+      template: lookup(ChecklistTemplate)!
+      checklistType: choice(ChecklistType)!
+      anchorDate: { type: date!, description: Start date or last working day. }
+      status: { type: choice(ChecklistStatus)!, default: notStarted }
+      buddy: lookup(Employee)
+      percentComplete: { type: percent, readOnly: true }
+
+  EmployeeChecklistTask:
+    description: Task instance with a named assignee and due date.
+    volume: medium
+    primary: title
+    attributes:
+      checklist: parent(EmployeeChecklist)
+      templateTask: lookup(ChecklistTemplateTask)
+      title: string(200)!
+      assigneeRole: choice(ChecklistAssigneeRole)!
+      assignedTo: lookup(Employee)
+      dueDate: date
+      status: { type: choice(ChecklistTaskStatus)!, default: notStarted }
+      completedOn: datetime
+      completedBy: lookup(Employee)
+      notes: text
+
+  # ----------------------------------------------------------------- recruiting
+  JobRequisition:
+    description: Approved request to hire.
+    traits: [integration]
+    primary: title
+    keys: [[requisitionNumber]]
+    attributes:
+      title: string(200)!
+      requisitionNumber: { type: autonumber, format: "REQ-{SEQNUM:5}" }
+      position: lookup(Position)
+      jobProfile: lookup(JobProfile)!
+      orgUnit: lookup(OrgUnit)!
+      office: lookup(Office)
+      hiringManager: lookup(Employee)!
+      recruiter: lookup(Employee)
+      openings: { type: integer!, default: 1 }
+      reason: choice(RequisitionReason)!
+      replacing: lookup(Employee)
+      employmentType: choice(EmploymentType)!
+      contractType: choice(ContractType)!
+      workArrangement: choice(WorkArrangement)
+      salaryMin: { type: money, sensitivity: confidential }
+      salaryMax: { type: money, sensitivity: confidential }
+      currency: lookup(Currency)!
+      targetStartDate: date
+      status: { type: choice(RequisitionStatus)!, default: draft }
+      isInternalOnly: boolean
+      approvalRequest: lookup(ApprovalRequest)
+      postedOn: date
+      closedOn: date
+      jobDescription: richtext
+
+  Candidate:
+    description: Person who applied or was sourced. Retention is time-limited by consent.
+    volume: medium
+    sensitivity: confidential
+    traits: [integration]
+    primary: fullName
+    keys: [[email]]
+    attributes:
+      fullName: { type: string(200)!, readOnly: true, calculated: "firstName + lastName" }
+      firstName: { type: string(100)!, pii: true }
+      lastName: { type: string(100)!, pii: true }
+      email: { type: email!, pii: true }
+      phone: { type: phone, pii: true }
+      linkedInUrl: url
+      location: string(100)
+      currentEmployer: string(200)
+      currentTitle: string(150)
+      source: choice(CandidateSource)
+      referredBy: lookup(Employee)
+      agency: lookup(Account)
+      employee: { type: lookup(Employee), description: Set for internal candidates. }
+      resume: file
+      consentToRetain: boolean
+      retainUntil: { type: date!, description: Delete or re-consent after this date (privacy law). }
+
+  JobApplication:
+    description: A candidate's application to a requisition.
+    volume: medium
+    sensitivity: confidential
+    primary: auto
+    keys: [[requisition, candidate]]
+    attributes:
+      requisition: lookup(JobRequisition)!
+      candidate: lookup(Candidate)!
+      stage: { type: choice(ApplicationStage)!, default: applied }
+      appliedOn: date!
+      stageChangedOn: datetime
+      rejectionReason: choice(RejectionReason)
+      overallRating: { type: "decimal(3,1)", readOnly: true, calculated: "average InterviewFeedback.rating" }
+      coverLetter: text
+
+  Interview:
+    description: Scheduled interview for an application.
+    volume: medium
+    primary: auto
+    attributes:
+      application: parent(JobApplication)
+      interviewType: choice(InterviewType)!
+      scheduledStart: datetime!
+      scheduledEnd: datetime
+      location: string(200)
+      meetingUrl: url
+      panel: multilookup(Employee)
+      status: { type: choice(InterviewStatus)!, default: scheduled }
+
+  InterviewFeedback:
+    description: One interviewer's scorecard.
+    plural: Interview Feedback
+    volume: medium
+    sensitivity: confidential
+    primary: auto
+    keys: [[interview, interviewer]]
+    attributes:
+      interview: parent(Interview)
+      interviewer: lookup(Employee)!
+      rating: { type: "decimal(3,1)", min: 1, max: 5 }
+      recommendation: choice(HiringRecommendation)!
+      strengths: text
+      concerns: text
+      submittedOn: datetime
+
+  Offer:
+    description: Job offer. On acceptance a flow creates Employee, Employment, JobAssignment, Compensation and onboarding.
+    sensitivity: restricted
+    primary: auto
+    attributes:
+      application: lookup(JobApplication)!
+      candidate: lookup(Candidate)!
+      position: lookup(Position)
+      jobTitle: string(150)!
+      grade: lookup(Grade)
+      baseSalary: money!
+      signOnBonus: money
+      currency: lookup(Currency)!
+      proposedStartDate: date!
+      status: { type: choice(OfferStatus)!, default: draft }
+      extendedOn: date
+      expiresOn: date
+      respondedOn: date
+      approvalRequest: lookup(ApprovalRequest)
+      offerLetterUrl: url
+
+  # ---------------------------------------------------------------- performance
+  ReviewCycle:
+    description: Performance review cycle.
+    ownership: organization
+    attributes:
+      name: string(100)!
+      cycleType: choice(ReviewCycleType)!
+      periodStart: date!
+      periodEnd: date!
+      selfReviewDue: date
+      managerReviewDue: date
+      status: { type: choice(ReviewCycleStatus)!, default: planned }
+
+  PerformanceRating:
+    description: Rating on the firm's performance scale.
+    ownership: organization
+    attributes:
+      name: string(100)!
+      code: { type: string(30)!, unique: true }
+      score: "decimal(3,1)!"
+      description: text
+
+  PerformanceReview:
+    description: One person's review in a cycle.
+    volume: medium
+    sensitivity: restricted
+    primary: auto
+    keys: [[cycle, employee]]
+    attributes:
+      cycle: lookup(ReviewCycle)!
+      employee: lookup(Employee)!
+      reviewer: lookup(Employee)!
+      status: { type: choice(ReviewStatus)!, default: notStarted }
+      selfAssessment: richtext
+      managerAssessment: richtext
+      selfRating: lookup(PerformanceRating)
+      managerRating: lookup(PerformanceRating)
+      finalRating: lookup(PerformanceRating)
+      promotionRecommended: boolean
+      employeeAcknowledgedOn: datetime
+      completedOn: datetime
+
+  Goal:
+    description: Objective or key result for a person, optionally aligned to a parent goal.
+    volume: medium
+    sensitivity: confidential
+    primary: title
+    attributes:
+      title: string(200)!
+      employee: lookup(Employee)!
+      cycle: lookup(ReviewCycle)
+      parentGoal: lookup(Goal)
+      category: choice(GoalCategory)
+      weightPercent: percent
+      measure: { type: text, description: How success is measured (KPI / key result). }
+      targetDate: date
+      status: { type: choice(GoalStatus)!, default: draft }
+      progressPercent: percent
+      description: text
+
+  # ------------------------------------------------------ learning & credentials
+  CredentialType:
+    description: Licence, certification or membership the firm tracks (bar admission, CPA, RIBA, AWS…).
+    ownership: organization
+    attributes:
+      name: string(150)!
+      code: { type: string(30)!, unique: true }
+      category: choice(CredentialCategory)!
+      issuingBody: string(200)
+      requiresRenewal: boolean
+      renewalPeriodMonths: integer
+      requiresCpd: boolean
+      annualCpdHours: { type: "decimal(5,1)", description: Default; jurisdictions may differ. }
+      description: text
+
+  EmployeeCredential:
+    description: A credential held by a person, with expiry and CPD progress. Drives reminders and staffing rules.
+    volume: medium
+    primary: auto
+    attributes:
+      employee: lookup(Employee)!
+      credentialType: lookup(CredentialType)!
+      credentialNumber: { type: string(100), sensitivity: confidential }
+      jurisdiction: { type: string(100), description: "e.g. New York, England & Wales, Maharashtra." }
+      country: lookup(Country)
+      issuedOn: date
+      expiresOn: date
+      status: { type: choice(CredentialStatus)!, default: active }
+      verifiedOn: date
+      verifiedBy: lookup(Employee)
+      cpdHoursRequired: "decimal(6,1)"
+      cpdHoursCompleted: { type: "decimal(6,1)", readOnly: true, calculated: "sum of TrainingRecord.cpdHoursEarned in the period" }
+      evidenceUrl: url
+
+  TrainingCourse:
+    description: Course in the learning catalogue.
+    ownership: organization
+    attributes:
+      name: string(200)!
+      code: { type: string(30), unique: true }
+      provider: lookup(Account)
+      category: term(TrainingCategory)
+      deliveryMethod: choice(DeliveryMethod)!
+      durationHours: "decimal(6,2)"
+      cpdHours: "decimal(6,2)"
+      countsTowards: { type: lookup(CredentialType), description: Credential whose CPD this course counts towards. }
+      isMandatory: boolean
+      validityMonths: { type: integer, description: Re-certification interval for mandatory training. }
+      cost: money
+      currency: lookup(Currency)
+      courseUrl: url
+      description: richtext
+
+  TrainingRecord:
+    description: Assignment and completion of a course by a person.
+    volume: high
+    primary: auto
+    attributes:
+      employee: lookup(Employee)!
+      course: lookup(TrainingCourse)!
+      status: { type: choice(TrainingStatus)!, default: assigned }
+      assignedBy: lookup(Employee)
+      assignedOn: date
+      dueDate: date
+      completedOn: date
+      expiresOn: { type: date, readOnly: true, calculated: "completedOn + course.validityMonths" }
+      score: "decimal(5,2)"
+      cpdHoursEarned: "decimal(6,2)"
+      certificateUrl: url
+
+  Skill:
+    description: Skill in the firm's skills catalogue.
+    ownership: organization
+    attributes:
+      name: string(150)!
+      code: { type: string(50), unique: true }
+      category: term(SkillCategory)
+      description: text
+
+  EmployeeSkill:
+    description: A person's proficiency in a skill. Used for staffing and the people directory.
+    volume: medium
+    primary: auto
+    keys: [[employee, skill]]
+    attributes:
+      employee: lookup(Employee)!
+      skill: lookup(Skill)!
+      proficiency: choice(ProficiencyLevel)!
+      yearsExperience: "decimal(4,1)"
+      isPrimary: boolean
+      source: { type: choice(SkillSource)!, default: selfAssessed }
+      validatedBy: lookup(Employee)
+      lastUsedOn: date
+
+seed:
+  JobFamily:
+    - { code: LEADERSHIP, name: Leadership }
+    - { code: DELIVERY, name: Client delivery }
+    - { code: BUS_DEV, name: Business development & marketing }
+    - { code: FINANCE, name: Finance }
+    - { code: PEOPLE, name: People / HR }
+    - { code: IT, name: IT & digital }
+    - { code: OPERATIONS, name: Operations & administration }
+  Grade:
+    - { code: L1, name: Entry, level: 1 }
+    - { code: L2, name: Associate, level: 2 }
+    - { code: L3, name: Senior Associate, level: 3 }
+    - { code: L4, name: Manager, level: 4 }
+    - { code: L5, name: Senior Manager, level: 5 }
+    - { code: L6, name: Director, level: 6 }
+    - { code: L7, name: Partner / Executive, level: 7 }
+  LeaveType:
+    - { code: ANNUAL, name: Annual leave, isPaid: true }
+    - { code: SICK, name: Sick leave, isPaid: true, requiresAttachmentAfterDays: 3, isPrivate: true }
+    - { code: PARENTAL, name: Parental leave, isPaid: true, isPrivate: true }
+    - { code: BEREAVEMENT, name: Bereavement leave, isPaid: true, isPrivate: true }
+    - { code: STUDY, name: Study / exam leave, isPaid: true }
+    - { code: PUBLIC_SERVICE, name: Jury / public service, isPaid: true }
+    - { code: VOLUNTEER, name: Volunteering day, isPaid: true }
+    - { code: TOIL, name: Time off in lieu, isPaid: true }
+    - { code: UNPAID, name: Unpaid leave, isPaid: false }
+  PerformanceRating:
+    - { code: R5, name: Exceptional, score: 5 }
+    - { code: R4, name: Exceeds expectations, score: 4 }
+    - { code: R3, name: Meets expectations, score: 3 }
+    - { code: R2, name: Partially meets expectations, score: 2 }
+    - { code: R1, name: Does not meet expectations, score: 1 }
+  CredentialType:
+    - { code: FIRST_AID, name: First aid at work, category: certification, requiresRenewal: true, renewalPeriodMonths: 36 }
+    - { code: PMP, name: Project Management Professional (PMP), category: certification, issuingBody: PMI, requiresRenewal: true, renewalPeriodMonths: 36, requiresCpd: true }
+    - { code: PRINCE2, name: PRINCE2 Practitioner, category: certification, issuingBody: PeopleCert, requiresRenewal: true, renewalPeriodMonths: 36 }
+  Skill:
+    - { code: PROJECT_MGMT, name: Project management, category: Professional skills }
+    - { code: CLIENT_REL, name: Client relationship management, category: Professional skills }
+    - { code: PRESENTING, name: Presenting & public speaking, category: Professional skills }
+    - { code: NEGOTIATION, name: Negotiation, category: Professional skills }
+    - { code: EXCEL, name: Microsoft Excel, category: Tools & software }
+    - { code: POWER_PLATFORM, name: Microsoft Power Platform, category: Tools & software }
+    - { code: DATA_ANALYSIS, name: Data analysis, category: Technical }
+    - { code: PEOPLE_MGMT, name: People management, category: Leadership }

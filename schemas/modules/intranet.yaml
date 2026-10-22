@@ -1,0 +1,395 @@
+# Intranet — news, announcements, events, policies with attestation, knowledge, links, service requests.
+module:
+  id: intranet
+  name: Intranet
+  kind: module
+  version: 1.0.0
+  dependsOn: [core]
+  description: >-
+    Employee front door. Content types and lists for a SharePoint hub (news, announcements,
+    events, policy library with attestation, knowledge base, quick links), a light service desk
+    for IT/facilities/HR requests, peer recognition and a governed site directory. Audience
+    targeting reuses core OrgUnit/Office (backed by Entra ID groups); the people directory reads
+    core Employee and HR skills.
+
+enums:
+  ContentStatus:
+    description: Publishing lifecycle of intranet content and policies.
+    values:
+      - { code: 1, key: draft }
+      - { code: 2, key: inReview }
+      - { code: 3, key: scheduled }
+      - { code: 4, key: published }
+      - { code: 5, key: archived, label: Archived / retired }
+  AnnouncementSeverity:
+    description: Visual weight of an announcement banner.
+    values:
+      - { code: 1, key: info }
+      - { code: 2, key: success }
+      - { code: 3, key: warning }
+      - { code: 4, key: critical }
+  SiteType:
+    description: Kind of SharePoint/Teams site in the directory.
+    values:
+      - { code: 1, key: hub }
+      - { code: 2, key: communication }
+      - { code: 3, key: team }
+      - { code: 4, key: project }
+      - { code: 5, key: clientExtranet }
+      - { code: 6, key: community }
+  EventRegistrationStatus:
+    description: Registration state for an event.
+    values:
+      - { code: 1, key: registered }
+      - { code: 2, key: waitlisted }
+      - { code: 3, key: cancelled }
+      - { code: 4, key: attended }
+      - { code: 5, key: noShow }
+  AttestationStatus:
+    description: Whether a person has confirmed they read a policy.
+    values:
+      - { code: 1, key: pending }
+      - { code: 2, key: completed }
+      - { code: 3, key: overdue }
+      - { code: 4, key: exempt }
+  AttestationMethod:
+    description: How the attestation was captured.
+    values:
+      - { code: 1, key: clickThrough }
+      - { code: 2, key: eSignature }
+      - { code: 3, key: trainingCompletion }
+  ServiceRequestStatus:
+    description: Lifecycle of a service request.
+    values:
+      - { code: 1, key: new }
+      - { code: 2, key: assigned }
+      - { code: 3, key: inProgress }
+      - { code: 4, key: waitingOnRequester }
+      - { code: 5, key: resolved }
+      - { code: 6, key: closed }
+      - { code: 7, key: cancelled }
+  RequestChannel:
+    description: Where a service request came from.
+    values:
+      - { code: 1, key: portal }
+      - { code: 2, key: email }
+      - { code: 3, key: teams }
+      - { code: 4, key: phone }
+      - { code: 5, key: walkUp }
+      - { code: 6, key: virtualAgent, label: Virtual agent / Copilot }
+
+termSets:
+  NewsCategory:
+    description: Category of news posts.
+    terms:
+      - Firm news
+      - Client wins
+      - People
+      - Events
+      - Industry insights
+      - Office updates
+      - Wellbeing
+      - Inclusion & belonging
+      - Awards & recognition
+  Topic:
+    description: Shared topic tags for news and knowledge.
+    open: true
+    terms: []
+  PolicyCategory:
+    description: Category of firm policies.
+    terms:
+      - HR
+      - IT & information security
+      - Finance & expenses
+      - Health & safety
+      - Risk & compliance
+      - Data protection
+      - Code of conduct
+      - Quality management
+  KnowledgeCategory:
+    description: Category of knowledge articles.
+    terms:
+      - How-to
+      - IT help
+      - HR FAQ
+      - Templates
+      - Processes
+      - Tools
+  LinkCategory:
+    description: Grouping of quick links in the app launcher.
+    terms:
+      - Apps
+      - HR
+      - Finance
+      - IT
+      - Knowledge
+      - External
+  EventType:
+    description: Kind of internal event.
+    terms:
+      - Town hall
+      - Training session
+      - Social
+      - Client event
+      - Webinar
+      - Conference
+      - Wellbeing
+      - Volunteering
+  CompanyValue:
+    description: The firm's values, used to tag recognition. Replace with the client's own values.
+    terms:
+      - Integrity
+      - Collaboration
+      - Excellence
+      - Innovation
+      - Respect
+
+entities:
+  Site:
+    description: >-
+      Governed register of SharePoint/Teams sites with owners and review dates — the basis for
+      lifecycle and sharing governance.
+    ownership: organization
+    traits: [classified]
+    keys: [[url]]
+    attributes:
+      name: string(200)!
+      url: { type: url!, unique: true }
+      siteType: choice(SiteType)!
+      hubSite: lookup(Site)
+      primaryOwner: lookup(Employee)!
+      secondaryOwner: { type: lookup(Employee), description: Every site needs two owners. }
+      orgUnit: lookup(OrgUnit)
+      client: { type: lookup(Account), description: For client extranets. }
+      m365GroupId: string(36)
+      teamsEnabled: boolean
+      externalSharingEnabled: boolean
+      lastReviewedOn: date
+      nextReviewDate: date
+      description: text
+
+  NewsArticle:
+    description: News post. In SharePoint it is a Site Page with the News content type and these columns.
+    volume: medium
+    traits: [classified]
+    platforms: { sharepoint: pages }
+    primary: title
+    attributes:
+      title: string(200)!
+      summary: { type: string(500), description: Teaser; also used by Viva Connections and Copilot. }
+      body: richtext!
+      bannerImage: image
+      category: term(NewsCategory)!
+      tags: multiterm(Topic)
+      writtenBy: lookup(Employee)!
+      status: { type: choice(ContentStatus)!, default: draft }
+      publishedOn: datetime
+      expiresOn: datetime
+      isFeatured: boolean
+      audienceOrgUnits: { type: multilookup(OrgUnit), description: Empty means everyone. }
+      audienceOffices: multilookup(Office)
+      language: lookup(Language)
+      translationOf: lookup(NewsArticle)
+      approvalRequest: lookup(ApprovalRequest)
+      pageUrl: url
+      viewCount: { type: integer, readOnly: true }
+    notes:
+      - On SharePoint, targeting uses the Entra ID groups behind OrgUnit/Office (audience targeting); multilingual uses SharePoint multilingual pages.
+
+  Announcement:
+    description: Short time-boxed banner message (outage, office closure, deadline).
+    ownership: organization
+    primary: title
+    attributes:
+      title: string(200)!
+      message: text!
+      severity: { type: choice(AnnouncementSeverity)!, default: info }
+      startOn: datetime!
+      endOn: datetime!
+      linkUrl: url
+      isDismissible: { type: boolean, default: true }
+      audienceOrgUnits: multilookup(OrgUnit)
+      audienceOffices: multilookup(Office)
+
+  CompanyEvent:
+    description: Internal or client-facing event with optional registration.
+    primary: title
+    attributes:
+      title: string(200)!
+      description: richtext
+      eventType: term(EventType)
+      startOn: datetime!
+      endOn: datetime!
+      isAllDay: boolean
+      timeZone: string(64)
+      office: lookup(Office)
+      venue: string(200)
+      onlineMeetingUrl: url
+      organizer: lookup(Employee)!
+      capacity: integer
+      registrationRequired: boolean
+      registrationDeadline: datetime
+      cpdHours: { type: "decimal(5,2)", description: CPD/CLE/CPE hours attendees can claim. }
+      status: { type: choice(ContentStatus)!, default: draft }
+      bannerImage: image
+      audienceOrgUnits: multilookup(OrgUnit)
+      audienceOffices: multilookup(Office)
+
+  EventRegistration:
+    description: A person's registration for an event.
+    volume: medium
+    primary: auto
+    keys: [[event, attendee]]
+    attributes:
+      event: parent(CompanyEvent)
+      attendee: lookup(Employee)!
+      status: { type: choice(EventRegistrationStatus)!, default: registered }
+      registeredOn: datetime!
+      checkedInOn: datetime
+      dietaryRequirements: { type: string(200), pii: true }
+
+  PolicyDocument:
+    description: >-
+      Controlled policy or procedure. The file lives in a SharePoint library with major/minor
+      versioning and a retention label; these are its metadata columns.
+    ownership: organization
+    traits: [classified]
+    platforms: { sharepoint: library }
+    primary: title
+    keys: [[documentNumber]]
+    attributes:
+      title: string(250)!
+      documentNumber: { type: string(30)!, unique: true, description: "e.g. POL-HR-012." }
+      category: term(PolicyCategory)!
+      policyOwner: lookup(Employee)!
+      approver: lookup(Employee)
+      orgUnit: lookup(OrgUnit)
+      legalEntity: lookup(LegalEntity)
+      versionLabel: string(20)!
+      status: { type: choice(ContentStatus)!, default: draft }
+      effectiveDate: date!
+      nextReviewDate: date!
+      summary: text
+      requiresAttestation: boolean
+      attestationDueDays: integer
+      appliesToOrgUnits: { type: multilookup(OrgUnit), description: Empty means everyone. }
+      supersedes: lookup(PolicyDocument)
+      approvalRequest: lookup(ApprovalRequest)
+      documentUrl: url
+
+  PolicyAttestation:
+    description: Evidence that a person read and accepted a specific version of a policy.
+    ownership: organization
+    volume: high
+    primary: auto
+    keys: [[policy, employee, policyVersion]]
+    attributes:
+      policy: lookup(PolicyDocument)!
+      employee: lookup(Employee)!
+      policyVersion: string(20)!
+      status: { type: choice(AttestationStatus)!, default: pending }
+      dueDate: date
+      attestedOn: datetime
+      method: choice(AttestationMethod)
+    notes:
+      - Append-only evidence. A new policy version creates new pending rows; old rows are never edited.
+
+  KnowledgeArticle:
+    description: How-to, FAQ or process article. A Site Page in SharePoint.
+    volume: medium
+    platforms: { sharepoint: pages }
+    primary: title
+    attributes:
+      title: string(200)!
+      summary: string(500)
+      body: richtext!
+      category: term(KnowledgeCategory)!
+      tags: multiterm(Topic)
+      articleOwner: lookup(Employee)!
+      status: { type: choice(ContentStatus)!, default: draft }
+      publishedOn: datetime
+      nextReviewDate: date
+      language: lookup(Language)
+      audienceOrgUnits: multilookup(OrgUnit)
+      helpfulYes: { type: integer, readOnly: true }
+      helpfulNo: { type: integer, readOnly: true }
+
+  QuickLink:
+    description: Link in the intranet app launcher / mega menu.
+    ownership: organization
+    primary: title
+    attributes:
+      title: string(100)!
+      url: url!
+      description: string(250)
+      icon: { type: string(50), description: Fluent UI icon name. }
+      category: term(LinkCategory)
+      sortOrder: integer
+      openInNewTab: boolean
+      isPinned: { type: boolean, description: Always shown; users cannot hide it. }
+      audienceOrgUnits: multilookup(OrgUnit)
+      audienceOffices: multilookup(Office)
+
+  ServiceCategory:
+    description: Catalogue entry for the service desk (IT, facilities, HR, finance requests).
+    ownership: organization
+    attributes:
+      name: string(150)!
+      code: { type: string(30)!, unique: true }
+      parentCategory: lookup(ServiceCategory)
+      owningOrgUnit: lookup(OrgUnit)
+      defaultAssignee: lookup(Employee)
+      assignmentGroupId: { type: string(36), description: Entra ID group / queue that works these requests. }
+      targetResponseHours: integer
+      targetResolutionHours: integer
+      requiresApproval: boolean
+      requestFormUrl: url
+      description: text
+
+  ServiceRequest:
+    description: Employee request to an internal service team.
+    volume: high
+    traits: [integration]
+    primary: title
+    keys: [[requestNumber]]
+    attributes:
+      title: string(200)!
+      requestNumber: { type: autonumber, format: "SR-{SEQNUM:6}" }
+      requester: lookup(Employee)!
+      onBehalfOf: lookup(Employee)
+      category: lookup(ServiceCategory)!
+      description: text!
+      priority: { type: choice(Priority)!, default: medium }
+      status: { type: choice(ServiceRequestStatus)!, default: new }
+      channel: { type: choice(RequestChannel), default: portal }
+      assignedTo: lookup(Employee)
+      office: lookup(Office)
+      dueOn: datetime
+      firstRespondedOn: datetime
+      resolvedOn: datetime
+      resolution: text
+      satisfactionScore: { type: integer, min: 1, max: 5 }
+      approvalRequest: lookup(ApprovalRequest)
+
+  Recognition:
+    description: Peer-to-peer recognition ("kudos") tied to the firm's values.
+    volume: medium
+    primary: auto
+    attributes:
+      givenBy: lookup(Employee)!
+      recipients: multilookup(Employee)!
+      message: text!
+      companyValue: term(CompanyValue)
+      postedOn: datetime!
+      isPublic: { type: boolean, default: true }
+
+seed:
+  ServiceCategory:
+    - { code: IT_HARDWARE, name: IT – hardware, targetResponseHours: 4, targetResolutionHours: 40 }
+    - { code: IT_ACCESS, name: IT – software & access, targetResponseHours: 4, targetResolutionHours: 16, requiresApproval: true }
+    - { code: IT_ACCOUNT, name: IT – account & password, targetResponseHours: 1, targetResolutionHours: 4 }
+    - { code: FAC_MAINT, name: Facilities – maintenance, targetResponseHours: 8, targetResolutionHours: 40 }
+    - { code: FAC_SPACE, name: Facilities – desks & rooms, targetResponseHours: 8, targetResolutionHours: 24 }
+    - { code: HR_DOCS, name: HR – letters & documents, targetResponseHours: 8, targetResolutionHours: 40 }
+    - { code: FIN_PAY, name: Finance – payments & expenses, targetResponseHours: 8, targetResolutionHours: 40 }
+    - { code: COMMS, name: Communications – intranet content, targetResponseHours: 8, targetResolutionHours: 40 }

@@ -1,0 +1,211 @@
+# Technology companies — products, releases, agile delivery, SaaS subscriptions, cloud certifications.
+module:
+  id: technology-crm
+  name: Technology – CRM overlay
+  kind: industry
+  version: 1.0.0
+  dependsOn: [crm]
+  description: SaaS customer data (recurring revenue, renewals, customer success) and subscriptions.
+
+terminology:
+  Account: { singular: Customer, plural: Customers }
+
+enums:
+  SubscriptionStatus:
+    description: Lifecycle of a subscription.
+    values:
+      - { code: 1, key: trial }
+      - { code: 2, key: active }
+      - { code: 3, key: pastDue }
+      - { code: 4, key: cancelled }
+      - { code: 5, key: expired }
+
+extend:
+  Account:
+    attributes:
+      annualRecurringRevenue: { type: money, readOnly: true, calculated: "12 × sum of active Subscription.monthlyRecurringRevenue" }
+      renewalDate: date
+      customerSuccessManager: lookup(Employee)
+      healthScore: { type: integer, min: 0, max: 100 }
+
+entities:
+  Subscription:
+    description: Recurring subscription of a customer to a plan.
+    volume: medium
+    traits: [integration]
+    attributes:
+      name: string(200)!
+      account: lookup(Account)!
+      plan: lookup(ServiceOffering)!
+      seats: integer
+      monthlyRecurringRevenue: money!
+      currency: lookup(Currency)!
+      startDate: date!
+      renewalDate: date
+      termMonths: integer
+      autoRenew: boolean
+      status: { type: choice(SubscriptionStatus)!, default: active }
+      cancellationReason: string(200)
+
+seed:
+  SalesPipeline:
+    - { code: TEC_SAAS, name: SaaS new business }
+  PipelineStage:
+    - { pipeline: TEC_SAAS, code: TEC_S_DISCOVERY, name: Discovery, sequence: 1, defaultProbability: 10, isClosed: false, isWon: false }
+    - { pipeline: TEC_SAAS, code: TEC_S_DEMO, name: Demo, sequence: 2, defaultProbability: 25, isClosed: false, isWon: false }
+    - { pipeline: TEC_SAAS, code: TEC_S_TRIAL, name: Trial / proof of concept, sequence: 3, defaultProbability: 40, isClosed: false, isWon: false }
+    - { pipeline: TEC_SAAS, code: TEC_S_PROPOSAL, name: Proposal, sequence: 4, defaultProbability: 60, isClosed: false, isWon: false }
+    - { pipeline: TEC_SAAS, code: TEC_S_NEGOTIATION, name: Negotiation, sequence: 5, defaultProbability: 80, isClosed: false, isWon: false }
+    - { pipeline: TEC_SAAS, code: TEC_S_WON, name: Closed won, sequence: 6, defaultProbability: 100, isClosed: true, isWon: true }
+    - { pipeline: TEC_SAAS, code: TEC_S_LOST, name: Closed lost, sequence: 7, defaultProbability: 0, isClosed: true, isWon: false }
+---
+module:
+  id: technology-work
+  name: Technology – Product delivery overlay
+  kind: industry
+  version: 1.0.0
+  dependsOn: [work]
+  description: >-
+    Agile product delivery: products and releases, backlog item types (epic/feature/story/bug),
+    bug severity and environments, and links to the code repository and pull requests.
+
+enums:
+  ProductStatus:
+    description: Lifecycle of a product.
+    values:
+      - { code: 1, key: ideation }
+      - { code: 2, key: inDevelopment }
+      - { code: 3, key: live }
+      - { code: 4, key: sunset }
+      - { code: 5, key: retired }
+  ReleaseStatus:
+    description: Lifecycle of a release.
+    values:
+      - { code: 1, key: planned }
+      - { code: 2, key: inProgress }
+      - { code: 3, key: released }
+      - { code: 4, key: rolledBack }
+      - { code: 5, key: cancelled }
+  BugSeverity:
+    description: Impact of a defect.
+    values:
+      - { code: 1, key: critical, label: S1 – Critical }
+      - { code: 2, key: major, label: S2 – Major }
+      - { code: 3, key: minor, label: S3 – Minor }
+      - { code: 4, key: trivial, label: S4 – Trivial }
+  DeployEnvironment:
+    description: Environment where a defect was found or a change is deployed.
+    values:
+      - { code: 1, key: development }
+      - { code: 2, key: test }
+      - { code: 3, key: staging }
+      - { code: 4, key: production }
+  DeliveryMethodology:
+    description: Delivery approach of a project.
+    values:
+      - { code: 1, key: scrum }
+      - { code: 2, key: kanban }
+      - { code: 3, key: waterfall }
+      - { code: 4, key: hybrid }
+      - { code: 5, key: scaledAgile }
+
+extend:
+  Project:
+    attributes:
+      product: lookup(Product)
+      deliveryMethodology: choice(DeliveryMethodology)
+      repositoryUrl: url
+  WorkItem:
+    attributes:
+      product: lookup(Product)
+      fixRelease: lookup(Release)
+      foundInRelease: lookup(Release)
+      severity: choice(BugSeverity)
+      environment: choice(DeployEnvironment)
+      gitBranch: string(200)
+      pullRequestUrl: url
+
+entities:
+  Product:
+    description: Software product or platform the company builds and runs.
+    ownership: organization
+    attributes:
+      name: string(200)!
+      code: { type: string(30)!, unique: true }
+      productOwner: lookup(Employee)
+      status: { type: choice(ProductStatus)!, default: inDevelopment }
+      repositoryUrl: url
+      documentationUrl: url
+      description: text
+
+  Release:
+    description: Versioned release of a product.
+    primary: versionNumber
+    keys: [[product, versionNumber]]
+    attributes:
+      product: parent(Product)
+      versionNumber: { type: string(30)!, description: "Semantic version, e.g. 2.4.0." }
+      codename: string(50)
+      plannedDate: date
+      releasedOn: date
+      status: { type: choice(ReleaseStatus)!, default: planned }
+      releaseManager: lookup(Employee)
+      releaseNotes: richtext
+
+seed:
+  ProjectType:
+    - { code: TEC_PRODUCT, name: Product development, defaultBillingModel: nonBillable, requiresClient: false, isInternal: true }
+    - { code: TEC_IMPLEMENTATION, name: Customer implementation, defaultBillingModel: fixedFee, requiresClient: true, isInternal: false }
+    - { code: TEC_MANAGED, name: Managed service / support, defaultBillingModel: subscription, requiresClient: true, isInternal: false }
+    - { code: TEC_INTERNAL_IT, name: Internal IT, defaultBillingModel: nonBillable, requiresClient: false, isInternal: true }
+  ProjectPhaseDefinition:
+    - { code: TEC_DISCOVERY, name: Discovery, framework: Delivery, sequence: 1 }
+    - { code: TEC_DESIGN, name: Design, framework: Delivery, sequence: 2 }
+    - { code: TEC_BUILD, name: Build, framework: Delivery, sequence: 3 }
+    - { code: TEC_TEST, name: Test & QA, framework: Delivery, sequence: 4 }
+    - { code: TEC_RELEASE, name: Release, framework: Delivery, sequence: 5 }
+    - { code: TEC_HYPERCARE, name: Hypercare, framework: Delivery, sequence: 6 }
+  ProjectRole:
+    - { code: TEC_ENG_MANAGER, name: Engineering manager }
+    - { code: TEC_PRODUCT_OWNER, name: Product owner / manager }
+    - { code: TEC_DELIVERY_LEAD, name: Scrum master / delivery lead }
+    - { code: TEC_ARCHITECT, name: Solution architect }
+    - { code: TEC_ENGINEER, name: Software engineer }
+    - { code: TEC_QA, name: QA engineer }
+    - { code: TEC_UX, name: UX designer }
+    - { code: TEC_DEVOPS, name: DevOps engineer }
+  WorkItemType:
+    - { code: TEC_EPIC, name: Epic, category: epic, allowsChildren: true }
+    - { code: TEC_FEATURE, name: Feature, category: feature, allowsChildren: true }
+    - { code: TEC_STORY, name: User story, category: story, allowsChildren: true }
+    - { code: TEC_BUG, name: Bug, category: bug, allowsChildren: false }
+    - { code: TEC_SPIKE, name: Spike, category: task, allowsChildren: false }
+    - { code: TEC_TECH_DEBT, name: Tech debt, category: task, allowsChildren: false }
+---
+module:
+  id: technology-hr
+  name: Technology – HR overlay
+  kind: industry
+  version: 1.0.0
+  dependsOn: [hr]
+  description: Cloud and engineering certifications and a starter technical skills catalogue.
+
+seed:
+  CredentialType:
+    - { code: TEC_AWS_SA, name: AWS Certified Solutions Architect, category: certification, issuingBody: Amazon Web Services, requiresRenewal: true, renewalPeriodMonths: 36 }
+    - { code: TEC_AZURE_SA, name: Microsoft Certified Azure Solutions Architect Expert, category: certification, issuingBody: Microsoft, requiresRenewal: true, renewalPeriodMonths: 12 }
+    - { code: TEC_PP_DEV, name: Microsoft Certified Power Platform Developer Associate, category: certification, issuingBody: Microsoft, requiresRenewal: true, renewalPeriodMonths: 12 }
+    - { code: TEC_GCP_ARCH, name: Google Cloud Professional Cloud Architect, category: certification, issuingBody: Google Cloud, requiresRenewal: true, renewalPeriodMonths: 24 }
+    - { code: TEC_CKA, name: Certified Kubernetes Administrator, category: certification, issuingBody: CNCF, requiresRenewal: true, renewalPeriodMonths: 24 }
+    - { code: TEC_CISSP, name: CISSP, category: certification, issuingBody: ISC2, requiresRenewal: true, renewalPeriodMonths: 36, requiresCpd: true }
+    - { code: TEC_SCRUM, name: Professional Scrum Master, category: certification, issuingBody: Scrum.org }
+  Skill:
+    - { code: TEC_CSHARP, name: C# / .NET, category: Technical }
+    - { code: TEC_TYPESCRIPT, name: TypeScript, category: Technical }
+    - { code: TEC_PYTHON, name: Python, category: Technical }
+    - { code: TEC_REACT, name: React, category: Technical }
+    - { code: TEC_SQL, name: SQL, category: Technical }
+    - { code: TEC_AZURE, name: Microsoft Azure, category: Technical }
+    - { code: TEC_AWS, name: Amazon Web Services, category: Technical }
+    - { code: TEC_K8S, name: Kubernetes, category: Technical }
+    - { code: TEC_SPFX, name: SharePoint Framework (SPFx), category: Technical }

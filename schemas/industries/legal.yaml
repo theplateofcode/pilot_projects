@@ -1,0 +1,256 @@
+# Law firms — matters, parties, docketing, UTBMS time codes, bar admissions.
+module:
+  id: legal-crm
+  name: Legal – CRM overlay
+  kind: industry
+  version: 1.0.0
+  dependsOn: [crm]
+  description: Law-firm language and reference data for business development.
+
+terminology:
+  Account: { singular: Client, plural: Clients }
+  Opportunity: { singular: Pitch, plural: Pitches }
+  Proposal: { singular: Fee Proposal, plural: Fee Proposals }
+  ServiceLine: { singular: Practice Area, plural: Practice Areas }
+
+termSets:
+  ServiceLine:
+    extends: true
+    terms:
+      - Litigation & dispute resolution
+      - Corporate & M&A
+      - Employment
+      - Real estate
+      - Intellectual property
+      - Banking & finance
+      - Private client
+      - Regulatory & compliance
+      - Tax
+
+seed:
+  LeadSource:
+    - { code: LEG_REF_FIRM, name: Referral – other law firm }
+    - { code: LEG_DIRECTORY, name: Legal directory listing }
+    - { code: LEG_PANEL, name: Panel appointment }
+  SalesPipeline:
+    - { code: LEG_PANELS, name: Panels & tenders }
+  PipelineStage:
+    - { pipeline: LEG_PANELS, code: LEG_P_EOI, name: Expression of interest, sequence: 1, defaultProbability: 10, isClosed: false, isWon: false }
+    - { pipeline: LEG_PANELS, code: LEG_P_RFP, name: RFP response, sequence: 2, defaultProbability: 30, isClosed: false, isWon: false }
+    - { pipeline: LEG_PANELS, code: LEG_P_PITCH, name: Pitch / interview, sequence: 3, defaultProbability: 50, isClosed: false, isWon: false }
+    - { pipeline: LEG_PANELS, code: LEG_P_APPOINTED, name: Appointed, sequence: 4, defaultProbability: 100, isClosed: true, isWon: true }
+    - { pipeline: LEG_PANELS, code: LEG_P_UNSUCCESSFUL, name: Unsuccessful, sequence: 5, defaultProbability: 0, isClosed: true, isWon: false }
+---
+module:
+  id: legal-work
+  name: Legal – Matter management overlay
+  kind: industry
+  version: 1.0.0
+  dependsOn: [work, proserv-compliance]
+  description: >-
+    Turns Work Management into matter management: matter terminology, lawyer roles, court and
+    limitation data, matter parties, docketing of key dates, and UTBMS task/activity codes.
+
+terminology:
+  Project: { singular: Matter, plural: Matters }
+  ProjectType: { singular: Matter Type, plural: Matter Types }
+  ProjectPhase: { singular: Matter Stage, plural: Matter Stages }
+  ProjectMember: { singular: Matter Team Member, plural: Matter Team }
+  ProjectRole: { singular: Matter Role, plural: Matter Roles }
+  Project.projectNumber: { label: Matter Number }
+  Project.projectManager: { label: Responsible Lawyer }
+  Project.sponsor: { label: Supervising Partner }
+  Project.client: { label: Client }
+
+enums:
+  MatterOutcome:
+    description: How a matter ended.
+    values:
+      - { code: 1, key: transactionCompleted }
+      - { code: 2, key: settled }
+      - { code: 3, key: judgmentInFavour }
+      - { code: 4, key: judgmentAgainst }
+      - { code: 5, key: discontinued }
+      - { code: 6, key: adviceDelivered }
+      - { code: 99, key: other }
+  KeyDateStatus:
+    description: State of a docketed date.
+    values:
+      - { code: 1, key: upcoming }
+      - { code: 2, key: completed }
+      - { code: 3, key: missed }
+      - { code: 4, key: vacated, label: Vacated / cancelled }
+
+termSets:
+  KeyDateType:
+    description: Kind of docketed date.
+    terms:
+      - Hearing
+      - Filing deadline
+      - Limitation date
+      - Trial
+      - Mediation
+      - Deposition
+      - Disclosure deadline
+      - Completion / closing
+      - IP renewal
+      - Internal deadline
+
+extend:
+  Project:
+    attributes:
+      originatingLawyer: { type: lookup(Employee), description: Origination credit. }
+      billingPartner: lookup(Employee)
+      clientMatterReference: { type: string(100), description: The client's own reference or PO number. }
+      court: lookup(Account)
+      jurisdiction: string(150)
+      caseNumber: string(100)
+      opposingCounsel: lookup(Contact)
+      limitationDate: { type: date, description: Critical date; also docketed as a KeyDate. }
+      amountInDispute: money
+      retainerAmount: money
+      isProBono: boolean
+      eBillingRequired: { type: boolean, description: Client requires LEDES e-billing. }
+      outcome: choice(MatterOutcome)
+
+entities:
+  MatterParty:
+    description: Party to a matter (client, adverse party, related party, counsel, court). Feeds future conflict searches.
+    plural: Matter Parties
+    volume: medium
+    sensitivity: confidential
+    primary: partyName
+    attributes:
+      project: { type: parent(Project), label: Matter }
+      partyName: string(200)!
+      role: choice(PartyRole)!
+      account: lookup(Account)
+      contact: lookup(Contact)
+      notes: text
+
+  KeyDate:
+    description: Docketed court or transaction date with responsible lawyer and reminders.
+    volume: medium
+    primary: title
+    attributes:
+      project: { type: parent(Project), label: Matter }
+      title: string(200)!
+      dateType: term(KeyDateType)!
+      dueOn: datetime!
+      isCritical: { type: boolean, description: Missing it creates malpractice risk; escalate reminders. }
+      court: lookup(Account)
+      responsible: lookup(Employee)!
+      backupResponsible: lookup(Employee)
+      reminderDaysBefore: integer
+      status: { type: choice(KeyDateStatus)!, default: upcoming }
+      completedOn: datetime
+      ruleReference: { type: string(200), description: Court rule used to calculate the date. }
+      calculatedFrom: { type: lookup(KeyDate), description: Triggering date this one was calculated from. }
+      notes: text
+
+seed:
+  ProjectType:
+    - { code: LEG_LITIGATION, name: Litigation, defaultBillingModel: timeAndMaterials, requiresClient: true, isInternal: false, numberPrefix: "M-" }
+    - { code: LEG_CORPORATE, name: Corporate / M&A, defaultBillingModel: cappedFee, requiresClient: true, isInternal: false, numberPrefix: "M-" }
+    - { code: LEG_EMPLOYMENT, name: Employment, defaultBillingModel: timeAndMaterials, requiresClient: true, isInternal: false, numberPrefix: "M-" }
+    - { code: LEG_REALESTATE, name: Real estate, defaultBillingModel: fixedFee, requiresClient: true, isInternal: false, numberPrefix: "M-" }
+    - { code: LEG_IP, name: Intellectual property, defaultBillingModel: fixedFee, requiresClient: true, isInternal: false, numberPrefix: "M-" }
+    - { code: LEG_ADVISORY, name: General advisory, defaultBillingModel: timeAndMaterials, requiresClient: true, isInternal: false, numberPrefix: "M-" }
+    - { code: LEG_PROBONO, name: Pro bono, defaultBillingModel: nonBillable, requiresClient: true, isInternal: false, numberPrefix: "PB-" }
+  ProjectPhaseDefinition:
+    - { code: LEG_LIT_ASSESS, name: Case assessment & strategy, framework: Litigation, projectType: LEG_LITIGATION, sequence: 1 }
+    - { code: LEG_LIT_PLEAD, name: Pleadings, framework: Litigation, projectType: LEG_LITIGATION, sequence: 2 }
+    - { code: LEG_LIT_DISCLOSE, name: Disclosure / discovery, framework: Litigation, projectType: LEG_LITIGATION, sequence: 3 }
+    - { code: LEG_LIT_EVIDENCE, name: Witness & expert evidence, framework: Litigation, projectType: LEG_LITIGATION, sequence: 4 }
+    - { code: LEG_LIT_PRETRIAL, name: Pre-trial, framework: Litigation, projectType: LEG_LITIGATION, sequence: 5 }
+    - { code: LEG_LIT_TRIAL, name: Trial, framework: Litigation, projectType: LEG_LITIGATION, sequence: 6 }
+    - { code: LEG_LIT_APPEAL, name: Post-trial & appeal, framework: Litigation, projectType: LEG_LITIGATION, sequence: 7 }
+    - { code: LEG_TX_INSTRUCT, name: Instruction & scoping, framework: Transaction, projectType: LEG_CORPORATE, sequence: 1 }
+    - { code: LEG_TX_DD, name: Due diligence, framework: Transaction, projectType: LEG_CORPORATE, sequence: 2 }
+    - { code: LEG_TX_DRAFT, name: Drafting & negotiation, framework: Transaction, projectType: LEG_CORPORATE, sequence: 3 }
+    - { code: LEG_TX_SIGN, name: Signing, framework: Transaction, projectType: LEG_CORPORATE, sequence: 4 }
+    - { code: LEG_TX_COMPLETE, name: Completion, framework: Transaction, projectType: LEG_CORPORATE, sequence: 5 }
+    - { code: LEG_TX_POST, name: Post-completion, framework: Transaction, projectType: LEG_CORPORATE, sequence: 6 }
+  ProjectRole:
+    - { code: LEG_PARTNER, name: Partner }
+    - { code: LEG_COUNSEL, name: Counsel / Of counsel }
+    - { code: LEG_SENIOR_ASSOC, name: Senior associate }
+    - { code: LEG_ASSOCIATE, name: Associate }
+    - { code: LEG_TRAINEE, name: Trainee / law clerk }
+    - { code: LEG_PARALEGAL, name: Paralegal }
+  WorkItemType:
+    - { code: LEG_DRAFTING, name: Drafting, category: task, allowsChildren: false }
+    - { code: LEG_REVIEW, name: Document review, category: task, allowsChildren: false }
+    - { code: LEG_RESEARCH, name: Legal research, category: task, allowsChildren: false }
+    - { code: LEG_FILING, name: Court filing, category: deliverable, allowsChildren: false }
+  TimeCode:
+    - { code: L100, name: "Case assessment, development and administration", codeSet: UTBMS-Litigation-Task, isBillableDefault: true }
+    - { code: L200, name: Pre-trial pleadings and motions, codeSet: UTBMS-Litigation-Task, isBillableDefault: true }
+    - { code: L300, name: Discovery, codeSet: UTBMS-Litigation-Task, isBillableDefault: true }
+    - { code: L400, name: Trial preparation and trial, codeSet: UTBMS-Litigation-Task, isBillableDefault: true }
+    - { code: L500, name: Appeal, codeSet: UTBMS-Litigation-Task, isBillableDefault: true }
+    - { code: A101, name: Plan and prepare for, codeSet: UTBMS-Activity, isBillableDefault: true }
+    - { code: A102, name: Research, codeSet: UTBMS-Activity, isBillableDefault: true }
+    - { code: A103, name: Draft/revise, codeSet: UTBMS-Activity, isBillableDefault: true }
+    - { code: A104, name: Review/analyze, codeSet: UTBMS-Activity, isBillableDefault: true }
+    - { code: A105, name: Communicate (in firm), codeSet: UTBMS-Activity, isBillableDefault: true }
+    - { code: A106, name: Communicate (with client), codeSet: UTBMS-Activity, isBillableDefault: true }
+    - { code: A107, name: Communicate (other outside counsel), codeSet: UTBMS-Activity, isBillableDefault: true }
+    - { code: A108, name: Communicate (other external), codeSet: UTBMS-Activity, isBillableDefault: true }
+    - { code: A109, name: Appear for/attend, codeSet: UTBMS-Activity, isBillableDefault: true }
+    - { code: A110, name: Manage data/files, codeSet: UTBMS-Activity, isBillableDefault: true }
+    - { code: A111, name: Other, codeSet: UTBMS-Activity, isBillableDefault: true }
+---
+module:
+  id: legal-hr
+  name: Legal – HR overlay
+  kind: industry
+  version: 1.0.0
+  dependsOn: [hr]
+  description: Lawyer credentials and CLE/CPD tracking.
+
+termSets:
+  TrainingCategory:
+    extends: true
+    terms:
+      - Ethics & professional responsibility
+      - CLE / CPD – legal
+
+seed:
+  JobFamily:
+    - { code: LEG_FEE_EARNER, name: Fee earners (lawyers) }
+    - { code: LEG_BUS_SERVICES, name: Business services }
+  CredentialType:
+    - { code: LEG_BAR, name: Bar admission / practising licence, category: professionalLicence, requiresRenewal: true, renewalPeriodMonths: 12, requiresCpd: true }
+    - { code: LEG_SOLICITOR, name: Solicitor practising certificate, category: professionalLicence, requiresRenewal: true, renewalPeriodMonths: 12, requiresCpd: true }
+    - { code: LEG_NOTARY, name: Notary public commission, category: professionalLicence, requiresRenewal: true }
+---
+module:
+  id: legal-travel
+  name: Legal – Travel overlay
+  kind: industry
+  version: 1.0.0
+  dependsOn: [travel]
+  description: Travel purposes specific to legal work.
+
+seed:
+  TravelPurpose:
+    - { code: LEG_COURT, name: Court hearing / trial, requiresClient: true, isBillableDefault: true }
+    - { code: LEG_DEPOSITION, name: Deposition / witness meeting, requiresClient: true, isBillableDefault: true }
+---
+module:
+  id: legal-intranet
+  name: Legal – Intranet overlay
+  kind: industry
+  version: 1.0.0
+  dependsOn: [intranet]
+  description: Policy categories law firms are required to maintain.
+
+termSets:
+  PolicyCategory:
+    extends: true
+    terms:
+      - Professional conduct
+      - Anti-money laundering
+      - Conflicts of interest
+      - Client confidentiality

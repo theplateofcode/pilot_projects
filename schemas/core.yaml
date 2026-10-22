@@ -1,0 +1,690 @@
+# Shared Core — master data and shared services used by every pilot.
+# Format reference: docs/04-schema-format.md
+module:
+  id: core
+  name: Shared Core
+  kind: foundation
+  version: 1.0.0
+  dependsOn: []
+  description: >-
+    Master data (organisation structure, people, external parties, currencies, countries,
+    calendars, taxonomy) and shared services (approvals, documents, comments, audit, settings)
+    that every pilot reuses. Nothing in here is industry-specific; industries adapt it through
+    terminology, reference data and overlay layers.
+
+traits:
+  base:
+    appliesTo: all
+    description: >-
+      Identity, audit and lifecycle columns on every entity. Dataverse and SharePoint provide
+      them natively; SQL builds generate them.
+    attributes:
+      id:
+        type: guid!
+        description: Surrogate primary key. Never shown to users, never reused, never derived from data.
+        dataverse: "<table>id (native primary key)"
+        sharepoint: "UniqueId (native; integer ID also exists)"
+        sql: uniqueidentifier PK (NEWSEQUENTIALID)
+      createdOn: { type: datetime!, dataverse: createdon (native), sharepoint: Created (native), sql: datetime2 (UTC) }
+      createdBy: { type: lookup(Employee), dataverse: createdby (native → systemuser), sharepoint: Author (native), sql: uniqueidentifier }
+      modifiedOn: { type: datetime!, dataverse: modifiedon (native), sharepoint: Modified (native), sql: datetime2 (UTC) }
+      modifiedBy: { type: lookup(Employee), dataverse: modifiedby (native → systemuser), sharepoint: Editor (native), sql: uniqueidentifier }
+      stateCode:
+        type: choice(RecordState)!
+        default: active
+        description: Record lifecycle (active/inactive). Deactivate instead of deleting. Not the business process status.
+        dataverse: statecode (native)
+        sharepoint: IsActive (Yes/No)
+        sql: tinyint
+      statusReason:
+        type: integer
+        description: Optional reason for the current state.
+        dataverse: statuscode (native)
+        sharepoint: "—"
+        sql: int
+      rowVersion:
+        type: integer
+        description: Optimistic concurrency token for integrations and offline sync.
+        dataverse: versionnumber (native)
+        sharepoint: owshiddenversion (native)
+        sql: rowversion
+  owned:
+    appliesTo: userOwned
+    description: >-
+      Record owner used for row-level security and assignment. Only on user-owned entities.
+      In Dataverse the ownership type cannot be changed after the table is created.
+    attributes:
+      owner:
+        type: lookup(Employee)
+        description: User or team that owns the record.
+        dataverse: ownerid (native, user or team) + owningbusinessunit
+        sharepoint: "— (use Author or a Person column; avoid item-level permissions)"
+        sql: uniqueidentifier
+  integration:
+    appliesTo: optIn
+    description: Keys for synchronising with external systems (ERP, HRIS, payroll, DMS, Jira…). Never reuse `id` for this.
+    attributes:
+      externalId: { type: string(100), indexed: true, description: Identifier of this record in the external system. }
+      sourceSystem: { type: string(50), description: "System that masters this record, e.g. Workday, Xero, iManage." }
+      lastSyncedOn: datetime
+  classified:
+    appliesTo: optIn
+    description: Information-protection metadata, aligned with Microsoft Purview sensitivity and retention labels.
+    attributes:
+      sensitivity: { type: choice(SensitivityLevel), default: internal }
+      retentionLabel: { type: string(100), description: Name of the retention label/policy applied. }
+  effectiveDated:
+    appliesTo: optIn
+    description: The row is valid for a date range. History is kept by adding rows, never by overwriting.
+    attributes:
+      validFrom: date!
+      validTo: { type: date, description: Empty means open-ended (the current row). }
+
+enums:
+  RecordState:
+    description: Record lifecycle. Matches Dataverse statecode values.
+    values:
+      - { code: 0, key: active }
+      - { code: 1, key: inactive }
+  SensitivityLevel:
+    description: Information classification. Map 1:1 to the tenant's Purview sensitivity labels.
+    values:
+      - { code: 1, key: public }
+      - { code: 2, key: internal }
+      - { code: 3, key: confidential }
+      - { code: 4, key: restricted }
+  AccountRole:
+    description: Why the firm has a relationship with an external organisation. An account can have several roles.
+    values:
+      - { code: 1, key: client }
+      - { code: 2, key: prospect }
+      - { code: 3, key: vendor }
+      - { code: 4, key: partner }
+      - { code: 5, key: competitor }
+      - { code: 6, key: referralSource }
+      - { code: 7, key: government, label: Government / Regulator / Court }
+      - { code: 99, key: other }
+  OrgUnitType:
+    description: Kind of internal organisational unit.
+    values:
+      - { code: 1, key: division }
+      - { code: 2, key: department }
+      - { code: 3, key: team }
+      - { code: 4, key: practiceGroup }
+      - { code: 5, key: serviceLine }
+      - { code: 6, key: studio }
+      - { code: 99, key: other }
+  WorkerType:
+    description: Relationship of a person to the firm. Equity partners are often not employees.
+    values:
+      - { code: 1, key: employee }
+      - { code: 2, key: partner }
+      - { code: 3, key: contractor }
+      - { code: 4, key: intern }
+      - { code: 5, key: temporary }
+  EmploymentStatus:
+    description: Directory-level status of a person.
+    values:
+      - { code: 1, key: preboarding }
+      - { code: 2, key: active }
+      - { code: 3, key: onLeave }
+      - { code: 4, key: leaver }
+  Priority:
+    description: Shared priority scale.
+    values:
+      - { code: 1, key: low }
+      - { code: 2, key: medium }
+      - { code: 3, key: high }
+      - { code: 4, key: critical }
+  BillingModel:
+    description: How work is charged. Shared by proposals (CRM) and projects (Work Management).
+    values:
+      - { code: 1, key: timeAndMaterials }
+      - { code: 2, key: fixedFee }
+      - { code: 3, key: cappedFee, label: Capped fee (T&M not to exceed) }
+      - { code: 4, key: retainer }
+      - { code: 5, key: milestone }
+      - { code: 6, key: contingency }
+      - { code: 7, key: percentageOfValue, label: Percentage of value (e.g. of construction cost) }
+      - { code: 8, key: subscription }
+      - { code: 9, key: nonBillable }
+  UnitOfMeasure:
+    description: Units used for pricing, quantities and mileage.
+    values:
+      - { code: 1, key: hour }
+      - { code: 2, key: day }
+      - { code: 3, key: week }
+      - { code: 4, key: month }
+      - { code: 5, key: each }
+      - { code: 6, key: fixed }
+      - { code: 7, key: kilometre }
+      - { code: 8, key: mile }
+      - { code: 9, key: night }
+      - { code: 10, key: squareMetre }
+      - { code: 11, key: squareFoot }
+  ApprovalStatus:
+    description: Overall outcome of an approval request.
+    values:
+      - { code: 1, key: pending }
+      - { code: 2, key: approved }
+      - { code: 3, key: rejected }
+      - { code: 4, key: cancelled }
+      - { code: 5, key: expired }
+  ApprovalStepStatus:
+    description: State of one approver's task.
+    values:
+      - { code: 1, key: waiting, label: Waiting (earlier step not finished) }
+      - { code: 2, key: pending }
+      - { code: 3, key: approved }
+      - { code: 4, key: rejected }
+      - { code: 5, key: skipped }
+      - { code: 6, key: delegated }
+      - { code: 7, key: expired }
+  ApproverType:
+    description: How the approver of a policy step is resolved at run time.
+    values:
+      - { code: 1, key: manager, label: Requester's manager }
+      - { code: 2, key: skipLevelManager, label: Manager's manager }
+      - { code: 3, key: specificEmployee }
+      - { code: 4, key: orgUnitHead }
+      - { code: 5, key: costCenterOwner }
+      - { code: 6, key: recordField, label: Person in a field of the record (e.g. project manager) }
+      - { code: 7, key: group, label: Any member of an Entra ID group }
+  ApprovalCompletionRule:
+    description: When a step with several approvers is complete.
+    values:
+      - { code: 1, key: anyApprover }
+      - { code: 2, key: allApprovers }
+  DocumentStorage:
+    description: Where the file behind a document reference lives.
+    values:
+      - { code: 1, key: sharePoint, label: SharePoint / OneDrive }
+      - { code: 2, key: azureBlob }
+      - { code: 3, key: dataverse }
+      - { code: 4, key: externalDms, label: External DMS (iManage, NetDocuments…) }
+      - { code: 5, key: externalUrl }
+  AuditAction:
+    description: Kind of change captured in the audit log (SQL builds).
+    values:
+      - { code: 1, key: create }
+      - { code: 2, key: update }
+      - { code: 3, key: delete }
+      - { code: 4, key: assign }
+      - { code: 5, key: share }
+      - { code: 6, key: statusChange }
+      - { code: 7, key: read, label: Read (sensitive records only) }
+  SettingValueType:
+    description: Data type of an application setting.
+    values:
+      - { code: 1, key: text }
+      - { code: 2, key: number }
+      - { code: 3, key: boolean }
+      - { code: 4, key: json }
+      - { code: 5, key: url }
+
+termSets:
+  Industry:
+    description: Industry classification of client and prospect organisations.
+    terms:
+      - Technology
+      - Financial Services
+      - Healthcare & Life Sciences
+      - Manufacturing
+      - Retail & Consumer
+      - Real Estate & Construction
+      - Public Sector
+      - Education
+      - Energy & Utilities
+      - Professional Services
+      - Media & Entertainment
+      - Hospitality & Travel
+      - Not-for-profit
+  ServiceLine:
+    description: >-
+      The firm's own lines of service. Industries rename it (law: Practice Area) and add terms
+      through overlay layers.
+    hierarchical: true
+    terms:
+      - Consulting
+      - Implementation
+      - Managed Services
+      - Training
+  DocumentType:
+    description: Classification of documents linked to records.
+    open: true
+    terms:
+      - Contract
+      - Proposal
+      - Invoice
+      - Receipt
+      - Policy
+      - Report
+      - Correspondence
+      - Identification
+      - Certificate
+      - Other
+
+entities:
+  # ---------------------------------------------------------------- organisation
+  LegalEntity:
+    description: A company of the group that employs people, signs contracts and keeps books.
+    ownership: organization
+    traits: [integration]
+    keys: [[code]]
+    attributes:
+      name: string(200)!
+      code: { type: string(20)!, unique: true }
+      registrationNumber: string(50)
+      taxNumber: string(50)
+      country: lookup(Country)!
+      baseCurrency: lookup(Currency)!
+      registeredAddress: address
+      parentLegalEntity: lookup(LegalEntity)
+      fiscalYearStartMonth: { type: integer, min: 1, max: 12 }
+      timeZone: { type: string(64), description: "IANA time zone, e.g. Europe/London." }
+
+  OrgUnit:
+    description: Internal organisational unit (division, department, team, practice group, studio).
+    ownership: organization
+    traits: [integration]
+    keys: [[code]]
+    attributes:
+      name: string(200)!
+      code: { type: string(30), unique: true }
+      unitType: choice(OrgUnitType)!
+      parentOrgUnit: lookup(OrgUnit)
+      head: lookup(Employee)
+      legalEntity: lookup(LegalEntity)
+      defaultCostCenter: lookup(CostCenter)
+      entraGroupId:
+        type: string(36)
+        description: Entra ID group that mirrors this unit. Used for audience targeting and security sync.
+      description: text
+
+  CostCenter:
+    description: Accounting cost centre used to allocate cost and spend.
+    ownership: organization
+    traits: [integration]
+    keys: [[code]]
+    attributes:
+      name: string(200)!
+      code: { type: string(30)!, unique: true }
+      legalEntity: lookup(LegalEntity)!
+      orgUnit: lookup(OrgUnit)
+      budgetOwner: lookup(Employee)
+
+  Office:
+    description: Physical office or site of the firm.
+    ownership: organization
+    traits: [integration]
+    keys: [[code]]
+    attributes:
+      name: string(200)!
+      code: { type: string(20), unique: true }
+      legalEntity: lookup(LegalEntity)
+      address: address!
+      timeZone: { type: string(64)!, description: "IANA time zone, e.g. America/New_York." }
+      phone: phone
+      isHeadquarters: boolean
+      deskCapacity: integer
+      holidayCalendar: lookup(HolidayCalendar)
+      latitude: "decimal(9,6)"
+      longitude: "decimal(9,6)"
+
+  Employee:
+    description: >-
+      Directory profile of a person who works for the firm (employees, partners, contractors).
+      Non-sensitive data only; HR keeps sensitive data in separate, locked-down tables.
+    ownership: organization
+    volume: medium
+    traits: [integration]
+    primary: displayName
+    keys: [[workEmail], [entraObjectId], [employeeNumber]]
+    attributes:
+      displayName: string(200)!
+      employeeNumber: { type: autonumber, format: "EMP-{SEQNUM:6}", description: Overwrite with the HR/payroll number when one exists. }
+      firstName: string(100)!
+      lastName: string(100)!
+      preferredName: string(100)
+      pronouns: string(30)
+      workEmail: { type: email!, unique: true, indexed: true }
+      entraObjectId:
+        type: string(36)
+        unique: true
+        indexed: true
+        description: >-
+          Identity anchor that links this person to Entra ID, Dataverse systemuser and SharePoint
+          Person columns. Never key people on email or UPN — they change.
+      userPrincipalName: string(200)
+      workPhone: phone
+      mobilePhone: { type: phone, pii: true }
+      jobTitle: string(150)
+      workerType: { type: choice(WorkerType)!, default: employee }
+      employmentStatus: { type: choice(EmploymentStatus)!, default: active }
+      orgUnit: lookup(OrgUnit)!
+      manager: lookup(Employee)
+      office: lookup(Office)
+      legalEntity: lookup(LegalEntity)
+      costCenter: lookup(CostCenter)
+      startDate: date
+      endDate: date
+      timeZone: string(64)
+      photo: image
+      bio: text
+      languages: multilookup(Language)
+      isPeopleManager: { type: boolean, readOnly: true, calculated: "true when any active Employee has this person as manager" }
+    notes:
+      - In HR deployments this is a read model kept current from HR JobAssignment rows by a flow or integration.
+      - On SharePoint, lookups to Employee become Person columns bound to Entra ID users.
+
+  Account:
+    description: >-
+      Any external organisation — client, prospect, vendor, partner, court, regulator.
+      One table with roles instead of separate client/vendor tables.
+    volume: medium
+    traits: [integration, classified]
+    platforms: { dataverse: "standard:account" }
+    keys: [[accountNumber]]
+    attributes:
+      name: { type: string(200)!, dataverse: name (native) }
+      accountNumber: { type: string(30), unique: true, dataverse: accountnumber (native) }
+      roles: multichoice(AccountRole)!
+      parentAccount: { type: lookup(Account), dataverse: parentaccountid (native) }
+      industry: term(Industry)
+      website: { type: url, dataverse: websiteurl (native) }
+      mainPhone: { type: phone, dataverse: telephone1 (native) }
+      email: { type: email, dataverse: emailaddress1 (native) }
+      address: { type: address, dataverse: address1_* (native) }
+      primaryContact: { type: lookup(Contact), dataverse: primarycontactid (native) }
+      relationshipManager: lookup(Employee)
+      registrationNumber: string(50)
+      taxNumber: { type: string(50), sensitivity: confidential }
+      currency: { type: lookup(Currency), dataverse: transactioncurrencyid (native) }
+      description: { type: text, dataverse: description (native) }
+
+  Contact:
+    description: A person outside the firm (client contact, vendor contact, opposing counsel, candidate referee…).
+    volume: medium
+    traits: [integration, classified]
+    platforms: { dataverse: "standard:contact" }
+    primary: fullName
+    attributes:
+      fullName: { type: string(200)!, readOnly: true, calculated: "firstName + lastName", dataverse: fullname (native) }
+      salutation: string(20)
+      firstName: { type: string(100), dataverse: firstname (native) }
+      lastName: { type: string(100)!, dataverse: lastname (native) }
+      jobTitle: { type: string(150), dataverse: jobtitle (native) }
+      account: { type: lookup(Account), dataverse: parentcustomerid (native) }
+      email: { type: email, pii: true, dataverse: emailaddress1 (native) }
+      businessPhone: { type: phone, pii: true, dataverse: telephone1 (native) }
+      mobilePhone: { type: phone, pii: true, dataverse: mobilephone (native) }
+      address: { type: address, pii: true, dataverse: address1_* (native) }
+      linkedInUrl: url
+      preferredLanguage: lookup(Language)
+      doNotContact: boolean
+      description: text
+    notes:
+      - Power Pages uses Contact as the identity of external portal users (client portals, candidate portals).
+
+  # -------------------------------------------------------------- reference data
+  Country:
+    description: ISO 3166 country.
+    ownership: organization
+    primary: name
+    keys: [[isoCode2]]
+    attributes:
+      name: string(100)!
+      isoCode2: { type: string(2)!, unique: true }
+      isoCode3: string(3)
+      region: { type: string(50), description: "Reporting region, e.g. EMEA, APAC, Americas." }
+      dialingCode: string(10)
+      defaultCurrency: lookup(Currency)
+    notes:
+      - Seed contains a starter set; load the full ISO 3166 list at deployment.
+
+  Currency:
+    description: ISO 4217 currency. Dataverse manages exchange rates on the currency itself.
+    ownership: organization
+    platforms: { dataverse: "standard:transactioncurrency" }
+    keys: [[isoCode]]
+    attributes:
+      name: { type: string(100)!, dataverse: currencyname (native) }
+      isoCode: { type: string(3)!, unique: true, dataverse: isocurrencycode (native) }
+      symbol: { type: string(5), dataverse: currencysymbol (native) }
+      decimalPlaces: { type: integer, dataverse: currencyprecision (native) }
+
+  ExchangeRate:
+    description: Dated exchange rate between two currencies (SharePoint and SQL builds; Dataverse keeps one rate per currency).
+    ownership: organization
+    volume: medium
+    platforms: { dataverse: native }
+    primary: auto
+    keys: [[fromCurrency, toCurrency, effectiveDate]]
+    attributes:
+      fromCurrency: lookup(Currency)!
+      toCurrency: lookup(Currency)!
+      rate: "decimal(18,10)!"
+      effectiveDate: date!
+      source: { type: string(50), description: "e.g. ECB, central bank, treasury system." }
+
+  Language:
+    description: Language, identified by its BCP-47 tag.
+    ownership: organization
+    attributes:
+      name: string(100)!
+      code: { type: string(10)!, unique: true, description: "BCP-47 tag, e.g. en-GB, fr-FR." }
+      isUiLanguage: { type: boolean, description: The apps and intranet are available in this language. }
+
+  HolidayCalendar:
+    description: Set of public holidays that applies to an office or country.
+    ownership: organization
+    attributes:
+      name: string(100)!
+      country: lookup(Country)
+      description: text
+
+  Holiday:
+    description: One public holiday in a holiday calendar.
+    ownership: organization
+    attributes:
+      calendar: parent(HolidayCalendar)
+      name: string(100)!
+      holidayDate: date!
+      isHalfDay: boolean
+
+  TermSet:
+    description: A taxonomy (term set) for Dataverse and SQL builds. SharePoint uses its term store instead.
+    ownership: organization
+    platforms: { sharepoint: termstore }
+    attributes:
+      name: string(100)!
+      code: { type: string(50)!, unique: true }
+      description: text
+      isHierarchical: boolean
+      isOpen: { type: boolean, description: Users may add new terms. }
+
+  Term:
+    description: One term in a term set.
+    ownership: organization
+    volume: medium
+    platforms: { sharepoint: termstore }
+    attributes:
+      termSet: parent(TermSet)
+      name: string(200)!
+      parentTerm: lookup(Term)
+      sortOrder: integer
+      isAvailableForTagging: { type: boolean, default: true }
+      synonyms: text
+      sharePointTermId: { type: string(36), indexed: true, description: Sync anchor to the SharePoint term store. }
+
+  AppSetting:
+    description: >-
+      Non-secret configuration value for SharePoint and SQL builds. Dataverse builds use
+      environment variables. Secrets always go to Azure Key Vault, never here.
+    ownership: organization
+    platforms: { dataverse: native }
+    primary: settingKey
+    keys: [[module, settingKey]]
+    attributes:
+      settingKey: string(100)!
+      module: string(50)!
+      value: text
+      valueType: { type: choice(SettingValueType)!, default: text }
+      description: text
+
+  # ------------------------------------------------------------- shared services
+  ApprovalPolicy:
+    description: >-
+      Rule that decides which approval chain applies to a record (by entity, legal entity,
+      org unit and amount). One engine serves travel, expenses, leave, hiring, content and more.
+    ownership: organization
+    attributes:
+      name: string(200)!
+      code: { type: string(50)!, unique: true }
+      appliesToEntity: { type: string(100)!, description: "Logical entity name, e.g. TripRequest." }
+      legalEntity: lookup(LegalEntity)
+      orgUnit: { type: lookup(OrgUnit), description: Empty means every org unit. }
+      minAmount: money
+      maxAmount: money
+      currency: lookup(Currency)
+      evaluationOrder: { type: integer!, description: Lower numbers are evaluated first; the first match wins. }
+      reminderAfterHours: integer
+      escalateAfterHours: integer
+      description: text
+
+  ApprovalPolicyStep:
+    description: One step of an approval policy.
+    ownership: organization
+    attributes:
+      policy: parent(ApprovalPolicy)
+      name: string(100)!
+      sequence: integer!
+      approverType: choice(ApproverType)!
+      approver: { type: lookup(Employee), description: When approverType = specificEmployee. }
+      approverGroupId: { type: string(36), description: Entra ID group when approverType = group. }
+      approverField: { type: string(100), description: Column on the record when approverType = recordField. }
+      completionRule: { type: choice(ApprovalCompletionRule)!, default: anyApprover }
+      minAmount: { type: money, description: Step only applies at or above this amount. }
+      currency: lookup(Currency)
+      allowDelegation: boolean
+      timeoutHours: integer
+
+  ApprovalRequest:
+    description: One approval run for one record. Business records keep a lookup to their latest request.
+    volume: medium
+    primary: requestNumber
+    attributes:
+      requestNumber: { type: autonumber, format: "APR-{SEQNUM:7}" }
+      subject: string(200)!
+      regarding: polylookup(*)!
+      policy: lookup(ApprovalPolicy)
+      requester: lookup(Employee)!
+      status: { type: choice(ApprovalStatus)!, default: pending }
+      submittedOn: datetime
+      completedOn: datetime
+      currentStep: integer
+      amount: money
+      currency: lookup(Currency)
+      summary: text
+      outcomeComments: text
+      flowRunId: { type: string(100), description: Power Automate run or workflow instance that drives the request. }
+
+  ApprovalStep:
+    description: Task for one approver within an approval request.
+    volume: high
+    primary: auto
+    attributes:
+      request: parent(ApprovalRequest)
+      policyStep: lookup(ApprovalPolicyStep)
+      sequence: integer!
+      approver: lookup(Employee)!
+      delegatedFrom: lookup(Employee)
+      status: { type: choice(ApprovalStepStatus)!, default: waiting }
+      assignedOn: datetime
+      dueOn: datetime
+      decidedOn: datetime
+      comments: text
+
+  DocumentReference:
+    description: >-
+      Metadata and link for a file stored outside the database (SharePoint, blob, DMS).
+      Keeps database capacity low and lets each client keep its own document system.
+    volume: high
+    traits: [classified, integration]
+    primary: title
+    attributes:
+      title: string(250)!
+      regarding: polylookup(*)!
+      documentType: term(DocumentType)
+      storage: { type: choice(DocumentStorage)!, default: sharePoint }
+      url: url!
+      fileName: string(250)
+      fileExtension: string(10)
+      sizeKb: integer
+      versionLabel: string(20)
+      uploadedBy: lookup(Employee)
+      uploadedOn: datetime
+      isClientVisible: { type: boolean, description: May be shown in client/external portals. }
+
+  Comment:
+    description: Threaded comment on any record.
+    volume: high
+    primary: auto
+    attributes:
+      regarding: polylookup(*)!
+      body: text!
+      postedBy: lookup(Employee)!
+      parentComment: lookup(Comment)
+      isInternal: { type: boolean, default: true, description: Hidden from external portal users. }
+      mentions: multilookup(Employee)
+    notes:
+      - Dataverse alternative for simple cases is the native Notes (annotation) table.
+
+  AuditEvent:
+    description: Change log for SQL builds. Dataverse auditing and SharePoint version history cover the other stacks.
+    ownership: organization
+    volume: high
+    sensitivity: confidential
+    platforms: { dataverse: native, sharepoint: native }
+    primary: auto
+    attributes:
+      entityName: string(100)!
+      recordId: { type: string(36)!, indexed: true }
+      action: choice(AuditAction)!
+      changedBy: lookup(Employee)
+      changedOn: datetime!
+      changes: { type: text, description: JSON diff of old and new values. }
+      correlationId: string(100)
+
+seed:
+  Currency:
+    - { isoCode: USD, name: US Dollar, symbol: "$", decimalPlaces: 2 }
+    - { isoCode: EUR, name: Euro, symbol: "€", decimalPlaces: 2 }
+    - { isoCode: GBP, name: Pound Sterling, symbol: "£", decimalPlaces: 2 }
+    - { isoCode: INR, name: Indian Rupee, symbol: "₹", decimalPlaces: 2 }
+    - { isoCode: AED, name: UAE Dirham, symbol: "د.إ", decimalPlaces: 2 }
+    - { isoCode: AUD, name: Australian Dollar, symbol: "$", decimalPlaces: 2 }
+    - { isoCode: CAD, name: Canadian Dollar, symbol: "$", decimalPlaces: 2 }
+    - { isoCode: SGD, name: Singapore Dollar, symbol: "$", decimalPlaces: 2 }
+    - { isoCode: JPY, name: Japanese Yen, symbol: "¥", decimalPlaces: 0 }
+  Country:
+    - { isoCode2: US, isoCode3: USA, name: United States, region: Americas, dialingCode: "+1", defaultCurrency: USD }
+    - { isoCode2: CA, isoCode3: CAN, name: Canada, region: Americas, dialingCode: "+1", defaultCurrency: CAD }
+    - { isoCode2: GB, isoCode3: GBR, name: United Kingdom, region: EMEA, dialingCode: "+44", defaultCurrency: GBP }
+    - { isoCode2: IE, isoCode3: IRL, name: Ireland, region: EMEA, dialingCode: "+353", defaultCurrency: EUR }
+    - { isoCode2: DE, isoCode3: DEU, name: Germany, region: EMEA, dialingCode: "+49", defaultCurrency: EUR }
+    - { isoCode2: FR, isoCode3: FRA, name: France, region: EMEA, dialingCode: "+33", defaultCurrency: EUR }
+    - { isoCode2: NL, isoCode3: NLD, name: Netherlands, region: EMEA, dialingCode: "+31", defaultCurrency: EUR }
+    - { isoCode2: AE, isoCode3: ARE, name: United Arab Emirates, region: EMEA, dialingCode: "+971", defaultCurrency: AED }
+    - { isoCode2: IN, isoCode3: IND, name: India, region: APAC, dialingCode: "+91", defaultCurrency: INR }
+    - { isoCode2: SG, isoCode3: SGP, name: Singapore, region: APAC, dialingCode: "+65", defaultCurrency: SGD }
+    - { isoCode2: AU, isoCode3: AUS, name: Australia, region: APAC, dialingCode: "+61", defaultCurrency: AUD }
+    - { isoCode2: JP, isoCode3: JPN, name: Japan, region: APAC, dialingCode: "+81", defaultCurrency: JPY }
+  Language:
+    - { code: en-US, name: English (United States), isUiLanguage: true }
+    - { code: en-GB, name: English (United Kingdom), isUiLanguage: true }
+    - { code: fr-FR, name: French, isUiLanguage: false }
+    - { code: de-DE, name: German, isUiLanguage: false }
+    - { code: es-ES, name: Spanish, isUiLanguage: false }
+    - { code: ar-AE, name: Arabic, isUiLanguage: false }
+    - { code: hi-IN, name: Hindi, isUiLanguage: false }

@@ -1,0 +1,86 @@
+# Bridges — links between two modules. Each bridge is deployed only when both modules are.
+# This keeps every module independently deployable (Travel without Work Management, etc.).
+module:
+  id: crm-work
+  name: Bridge – CRM ↔ Work Management
+  kind: bridge
+  version: 1.0.0
+  dependsOn: [crm, work]
+  description: >-
+    Connects won business to delivery: a project remembers the opportunity and proposal it came
+    from, and services in the catalogue suggest the project type to create.
+
+extend:
+  Project:
+    attributes:
+      originatingOpportunity: lookup(Opportunity)
+      proposal: lookup(Proposal)
+  ServiceOffering:
+    attributes:
+      defaultProjectType: lookup(ProjectType)
+---
+module:
+  id: travel-work
+  name: Bridge – Travel ↔ Work Management
+  kind: bridge
+  version: 1.0.0
+  dependsOn: [travel, work]
+  description: Charges trips and expenses to projects so they can be re-billed and reported per project.
+
+extend:
+  TripRequest:
+    attributes:
+      project: lookup(Project)
+  ExpenseReport:
+    attributes:
+      project: { type: lookup(Project), description: Default project for the lines of this report. }
+  ExpenseLine:
+    attributes:
+      project: lookup(Project)
+---
+module:
+  id: hr-work
+  name: Bridge – HR ↔ Work Management
+  kind: bridge
+  version: 1.0.0
+  dependsOn: [hr, work]
+  description: Skills-, grade- and credential-aware resourcing.
+
+extend:
+  ResourceRequest:
+    attributes:
+      requiredSkills: multilookup(Skill)
+      requiredCredential: { type: lookup(CredentialType), description: "e.g. a practising certificate or licence required to sign off." }
+      minimumGrade: lookup(Grade)
+  ProjectRole:
+    attributes:
+      typicalGrade: lookup(Grade)
+---
+module:
+  id: hr-intranet
+  name: Bridge – HR ↔ Intranet
+  kind: bridge
+  version: 1.0.0
+  dependsOn: [hr, intranet]
+  description: Training sessions published as intranet events; attendance creates training records.
+
+extend:
+  CompanyEvent:
+    attributes:
+      trainingCourse: { type: lookup(TrainingCourse), description: Attendance marks the course completed for attendees. }
+  PolicyDocument:
+    attributes:
+      relatedCourse: { type: lookup(TrainingCourse), description: Mandatory training that explains the policy. }
+---
+module:
+  id: intranet-work
+  name: Bridge – Intranet ↔ Work Management
+  kind: bridge
+  version: 1.0.0
+  dependsOn: [intranet, work]
+  description: Registers each project's Teams/SharePoint workspace in the governed site directory.
+
+extend:
+  Site:
+    attributes:
+      project: lookup(Project)

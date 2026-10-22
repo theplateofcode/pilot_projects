@@ -1,0 +1,184 @@
+# Risk & compliance shared by regulated professional-services firms (law, accounting, consulting).
+module:
+  id: proserv-compliance
+  name: Professional Services – Risk & Compliance
+  kind: industry
+  version: 1.0.0
+  dependsOn: [crm, work]
+  description: >-
+    Client and matter acceptance controls that law and accounting firms both need: conflict
+    checks against existing clients and parties, information barriers (ethical walls), and
+    client due diligence (KYC/AML) with beneficial owners and sanctions screening. Shared here
+    so the legal and accounting overlays do not duplicate it.
+
+enums:
+  ConflictCheckStatus:
+    description: Outcome of a conflict check.
+    values:
+      - { code: 1, key: pending }
+      - { code: 2, key: searching }
+      - { code: 3, key: clear }
+      - { code: 4, key: potentialConflict }
+      - { code: 5, key: conflictWaived }
+      - { code: 6, key: declined }
+  PartyRole:
+    description: Role of a party in a matter or conflict search.
+    values:
+      - { code: 1, key: client }
+      - { code: 2, key: adverseParty }
+      - { code: 3, key: relatedParty }
+      - { code: 4, key: opposingCounsel }
+      - { code: 5, key: coDefendant }
+      - { code: 6, key: witness }
+      - { code: 7, key: expert }
+      - { code: 8, key: court }
+      - { code: 99, key: other }
+  MatchResult:
+    description: Result of matching a name against the firm's records or a sanctions list.
+    values:
+      - { code: 1, key: noMatch }
+      - { code: 2, key: possibleMatch }
+      - { code: 3, key: confirmedMatch }
+      - { code: 4, key: falsePositive }
+  BarrierStatus:
+    description: Lifecycle of an information barrier.
+    values:
+      - { code: 1, key: proposed }
+      - { code: 2, key: active }
+      - { code: 3, key: lifted }
+  BarrierSide:
+    description: Which side of a barrier a person is on.
+    values:
+      - { code: 1, key: insider, label: Inside (working on the matter) }
+      - { code: 2, key: screened, label: Screened (must not access) }
+  DueDiligenceLevel:
+    description: Depth of client due diligence.
+    values:
+      - { code: 1, key: simplified }
+      - { code: 2, key: standard }
+      - { code: 3, key: enhanced }
+  DueDiligenceStatus:
+    description: Progress of client due diligence.
+    values:
+      - { code: 1, key: notStarted }
+      - { code: 2, key: inProgress }
+      - { code: 3, key: awaitingDocuments }
+      - { code: 4, key: completed }
+      - { code: 5, key: expired }
+      - { code: 6, key: rejected }
+  RiskRating:
+    description: Three-point risk rating for clients and engagements.
+    values:
+      - { code: 1, key: low }
+      - { code: 2, key: medium }
+      - { code: 3, key: high }
+
+extend:
+  Account:
+    attributes:
+      amlRiskRating: choice(RiskRating)
+      kycStatus: choice(DueDiligenceStatus)
+      kycNextReviewDate: date
+      conflictsClearedOn: date
+  Project:
+    attributes:
+      conflictCheck: lookup(ConflictCheck)
+      riskRating: choice(RiskRating)
+      hasInformationBarrier: boolean
+      engagementLetterSignedOn: date
+      engagementLetterUrl: url
+
+entities:
+  ConflictCheck:
+    description: Search for conflicts of interest before accepting a client or new matter/engagement.
+    sensitivity: restricted
+    primary: title
+    keys: [[checkNumber]]
+    attributes:
+      title: string(200)!
+      checkNumber: { type: autonumber, format: "CC-{SEQNUM:6}" }
+      requestedBy: lookup(Employee)!
+      requestedOn: datetime!
+      prospectiveClient: lookup(Account)
+      prospectiveClientName: { type: string(200), description: When the client is not yet an account. }
+      opportunity: lookup(Opportunity)
+      project: { type: lookup(Project), description: Matter/engagement opened after clearance. }
+      matterDescription: text!
+      status: { type: choice(ConflictCheckStatus)!, default: pending }
+      reviewedBy: lookup(Employee)
+      decidedOn: datetime
+      decisionNotes: text
+      waiverDocumentUrl: url
+
+  ConflictParty:
+    description: Party searched in a conflict check and the match found.
+    volume: medium
+    sensitivity: restricted
+    primary: partyName
+    attributes:
+      conflictCheck: parent(ConflictCheck)
+      partyName: string(200)!
+      partyRole: choice(PartyRole)!
+      matchedAccount: lookup(Account)
+      matchedContact: lookup(Contact)
+      matchResult: choice(MatchResult)
+      notes: text
+
+  InformationBarrier:
+    description: Ethical wall that stops screened people from accessing a matter, engagement or client.
+    sensitivity: restricted
+    attributes:
+      name: string(200)!
+      project: lookup(Project)
+      account: lookup(Account)
+      reason: text!
+      status: { type: choice(BarrierStatus)!, default: proposed }
+      effectiveFrom: date!
+      liftedOn: date
+      approvedBy: lookup(Employee)
+      enforcementNotes: { type: text, description: "How it is enforced: Purview information barriers, site permissions, Dataverse teams." }
+
+  InformationBarrierMember:
+    description: Person inside or screened by an information barrier.
+    sensitivity: restricted
+    primary: auto
+    keys: [[barrier, employee]]
+    attributes:
+      barrier: parent(InformationBarrier)
+      employee: lookup(Employee)!
+      side: choice(BarrierSide)!
+      addedOn: date
+      acknowledgedOn: datetime
+
+  DueDiligenceCheck:
+    description: Client due diligence (KYC/AML) performed at onboarding and on periodic review.
+    sensitivity: restricted
+    primary: auto
+    attributes:
+      account: lookup(Account)!
+      level: choice(DueDiligenceLevel)!
+      riskRating: choice(RiskRating)!
+      status: { type: choice(DueDiligenceStatus)!, default: notStarted }
+      performedBy: lookup(Employee)
+      completedOn: date
+      nextReviewDate: date
+      sourceOfFunds: text
+      hasPoliticallyExposedPerson: boolean
+      sanctionsScreenedOn: datetime
+      sanctionsResult: choice(MatchResult)
+      evidenceUrl: url
+      notes: text
+
+  BeneficialOwner:
+    description: Person who ultimately owns or controls a client, recorded during due diligence.
+    sensitivity: restricted
+    attributes:
+      dueDiligence: parent(DueDiligenceCheck)
+      name: { type: string(200)!, pii: true }
+      contact: lookup(Contact)
+      ownershipPercent: percent
+      isPoliticallyExposed: boolean
+      dateOfBirth: { type: date, pii: true }
+      nationality: lookup(Country)
+      verifiedOn: date
+      verificationMethod: string(100)

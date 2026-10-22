@@ -1,0 +1,49 @@
+# Deployment profiles — which layers are deployed together for one kind of client.
+# A profile must include every dependency of every layer it lists (the tool checks this).
+# Resolve one into a single model with:  python tools/schematool.py export --profile law-firm
+
+profiles:
+  general-firm:
+    description: Any professional or corporate firm. All five pilots with generic reference data.
+    layers: [core, crm, work, travel, hr, intranet, crm-work, travel-work, hr-work, hr-intranet, intranet-work]
+
+  architecture-firm:
+    description: Architecture and design practices (RIBA/AIA stages, drawings, transmittals, site visits).
+    layers: [core, crm, work, travel, hr, intranet, crm-work, travel-work, hr-work, hr-intranet, intranet-work,
+             architecture-crm, architecture-work, architecture-hr, architecture-travel]
+
+  law-firm:
+    description: Law firms (matters, conflicts, ethical walls, docketing, UTBMS, bar admissions).
+    layers: [core, crm, work, travel, hr, intranet, crm-work, travel-work, hr-work, hr-intranet, intranet-work,
+             proserv-compliance, legal-crm, legal-work, legal-hr, legal-travel, legal-intranet]
+
+  accounting-firm:
+    description: Accounting, audit and tax firms (engagements, PBC requests, deadlines, independence, CPE).
+    layers: [core, crm, work, travel, hr, intranet, crm-work, travel-work, hr-work, hr-intranet, intranet-work,
+             proserv-compliance, accounting-crm, accounting-work, accounting-hr, accounting-travel, accounting-intranet]
+
+  tech-company:
+    description: Software and technology companies (products, releases, agile backlog, SaaS subscriptions).
+    layers: [core, crm, work, travel, hr, intranet, crm-work, travel-work, hr-work, hr-intranet, intranet-work,
+             technology-crm, technology-work, technology-hr]
+
+  # Single-pilot starters — the smallest deployable sets, e.g. for a SharePoint-only client.
+  intranet-starter:
+    description: Intranet only, on SharePoint Online.
+    layers: [core, intranet]
+
+  travel-starter:
+    description: Travel portal only (trip requests, bookings, expenses).
+    layers: [core, travel]
+
+  hr-starter:
+    description: HR only (people, leave, onboarding, hiring, performance, learning).
+    layers: [core, hr]
+
+  crm-starter:
+    description: CRM only (clients, pipeline, proposals, activities).
+    layers: [core, crm]
+
+  work-starter:
+    description: Work management only (projects, tasks, time).
+    layers: [core, work]
