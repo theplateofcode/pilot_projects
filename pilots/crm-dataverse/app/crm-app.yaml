@@ -1,0 +1,442 @@
+# CRM pilot — Dataverse / model-driven app specification.
+#
+# The canonical model (schemas/*.yaml, resolved by tools/schematool.py export) says WHAT the
+# tables and columns are. This file says how they are presented: which tables the app carries,
+# the navigation, the views and forms, the security roles and the charts.
+# Everything here is optional — a table with no entry gets a sensible generated form and view.
+
+solution:
+  publisher:
+    uniquename: pilotprojects
+    friendlyname: Pilot Projects
+    prefix: pfx                 # also the column/table prefix; change before the first deploy
+    option_value_prefix: 32100   # 10000-99999, unique per publisher in the tenant
+  uniquename: pfx_crm
+  friendlyname: CRM Pilot
+  version: 1.0.0.0
+  description: Clients, pitches, fee proposals, campaigns and consent — built from the canonical model.
+
+app:
+  uniquename: pfx_crm_app
+  name: CRM
+  description: Business development for a professional-services firm.
+  # Shown in the app's site map. Subareas accept either a canonical table name (Opportunity)
+  # or a native Dataverse logical name prefixed with "native:" (native:activitypointer).
+  areas:
+    - id: sales
+      title: Sales
+      groups:
+        - id: pipeline
+          title: Pipeline
+          subareas:
+            - {table: Opportunity, title: Pitches}
+            - {table: Lead, title: Leads}
+            - {table: Proposal, title: Fee proposals}
+        - id: relationships
+          title: Relationships
+          subareas:
+            - {table: Account, title: Clients}
+            - {table: Contact, title: Contacts}
+            - {table: "native:activitypointer", title: Activities}
+            - {table: AccountRelationship, title: Client relationships}
+    - id: marketing
+      title: Marketing
+      groups:
+        - id: campaigns
+          title: Campaigns
+          subareas:
+            - {table: Campaign, title: Campaigns}
+            - {table: CampaignMember, title: Campaign members}
+        - id: privacy
+          title: Privacy
+          subareas:
+            - {table: ConsentRecord, title: Consent records}
+    - id: setup
+      title: Setup
+      groups:
+        - id: sales_setup
+          title: Sales setup
+          subareas:
+            - {table: SalesPipeline, title: Pipelines}
+            - {table: PipelineStage, title: Pipeline stages}
+            - {table: LeadSource, title: Lead sources}
+            - {table: ServiceOffering, title: Service offerings}
+        - id: firm
+          title: The firm
+          subareas:
+            - {table: Employee, title: People}
+            - {table: Office, title: Offices}
+            - {table: OrgUnit, title: Org units}
+            - {table: LegalEntity, title: Legal entities}
+        - id: reference
+          title: Reference data
+          subareas:
+            - {table: TermSet, title: Term sets}
+            - {table: Term, title: Terms}
+            - {table: Country, title: Countries}
+            - {table: Language, title: Languages}
+        - id: governance
+          title: Governance
+          subareas:
+            - {table: ApprovalPolicy, title: Approval policies}
+            - {table: ApprovalRequest, title: Approval requests}
+            - {table: DocumentReference, title: Documents}
+
+tables:
+  # Tables deployed into the solution. Required references are pulled in automatically.
+  include:
+    - Account
+    - Contact
+    - Currency
+    - Employee
+    - OrgUnit
+    - Office
+    - LegalEntity
+    - Country
+    - Language
+    - TermSet
+    - Term
+    - DocumentReference
+    - Comment
+    - ApprovalPolicy
+    - ApprovalPolicyStep
+    - ApprovalRequest
+    - ApprovalStep
+    - LeadSource
+    - Lead
+    - SalesPipeline
+    - PipelineStage
+    - Opportunity
+    - OpportunityTeamMember
+    - ServiceOffering
+    - Proposal
+    - ProposalLine
+    - Campaign
+    - CampaignMember
+    - ConsentRecord
+    - AccountRelationship
+  # Not deployed. Activity maps to the native Dataverse activity tables (task, phone call,
+  # appointment, email), which the app uses directly; the rest belong to other pilots.
+  exclude:
+    - Activity
+    - AppSetting
+    - AuditEvent
+    - ExchangeRate
+    - CostCenter
+    - Holiday
+    - HolidayCalendar
+
+# ---------------------------------------------------------------- presentation
+ux:
+  # Columns listed per table drive both the main form and the default view. Any column of the
+  # table that is not listed is appended to a "More details" section so nothing is lost.
+  Opportunity:
+    views:
+      - name: My open pitches
+        default: true
+        columns: [name, account, stage, estimatedValue, estimatedCloseDate, probability, nextStep]
+        order: [[estimatedCloseDate, asc]]
+        filter:
+          - {column: status, eq: open}
+          - {owner: me}
+      - name: Open pitches
+        columns: [name, account, pipeline, stage, estimatedValue, estimatedCloseDate, probability, owner]
+        order: [[estimatedCloseDate, asc]]
+        filter: [{column: status, eq: open}]
+      - name: Closing this quarter
+        columns: [name, account, stage, estimatedValue, estimatedCloseDate, probability, owner]
+        order: [[estimatedCloseDate, asc]]
+        filter:
+          - {column: status, eq: open}
+          - {column: estimatedCloseDate, operator: this-quarter}
+      - name: Tenders and panels
+        columns: [name, account, tenderDeadline, stage, estimatedValue, owner]
+        order: [[tenderDeadline, asc]]
+        filter: [{column: isTender, eq: true}, {column: status, eq: open}]
+      - name: Won pitches
+        columns: [name, account, actualValue, actualCloseDate, serviceLine, owner]
+        order: [[actualCloseDate, desc]]
+        filter: [{column: status, eq: won}]
+      - name: Lost pitches
+        columns: [name, account, estimatedValue, actualCloseDate, lossReason, competitorName]
+        order: [[actualCloseDate, desc]]
+        filter: [{column: status, eq: lost}]
+    form:
+      - tab: Pitch
+        sections:
+          - name: Summary
+            columns: [name, opportunityNumber, account, primaryContact, serviceLine, description]
+          - name: Pipeline
+            columns: [pipeline, stage, status, probability, estimatedCloseDate, actualCloseDate]
+          - name: Value
+            columns: [currency, estimatedValue, weightedValue, actualValue]
+          - name: Next steps
+            columns: [nextStep, nextStepDate]
+      - tab: Origin and outcome
+        sections:
+          - name: Where it came from
+            columns: [source, originatingLead, campaign]
+          - name: Tender
+            columns: [isTender, tenderDeadline]
+          - name: Outcome
+            columns: [lossReason, competitorName]
+          - name: Classification
+            columns: [sensitivity, retentionLabel, externalId, sourceSystem]
+      - tab: Team and proposals
+        grids:
+          - {table: OpportunityTeamMember, column: opportunity, label: Pursuit team}
+          - {table: Proposal, column: opportunity, label: Fee proposals}
+
+  Lead:
+    views:
+      - name: Open leads
+        default: true
+        columns: [topic, lastName, companyName, status, rating, source, estimatedValue, owner]
+        order: [[createdon, desc]]
+        filter: [{column: status, in: [new, contacted, nurturing]}]
+      - name: My leads
+        columns: [topic, companyName, status, rating, estimatedValue, serviceLine]
+        order: [[createdon, desc]]
+        filter: [{owner: me}]
+      - name: Qualified leads
+        columns: [topic, companyName, qualifiedAccount, qualifiedOpportunity, owner]
+        filter: [{column: status, eq: qualified}]
+    form:
+      - tab: Lead
+        sections:
+          - name: Enquiry
+            columns: [topic, status, rating, description]
+          - name: Person
+            columns: [firstName, lastName, jobTitle, email, phone, companyName]
+          - name: Interest
+            columns: [serviceLine, industry, currency, estimatedValue]
+          - name: Where it came from
+            columns: [source, campaign, referredBy]
+      - tab: Qualification
+        sections:
+          - name: Qualified into
+            columns: [qualifiedAccount, qualifiedContact, qualifiedOpportunity]
+          - name: Disqualified
+            columns: [disqualifiedReason]
+          - name: Classification
+            columns: [sensitivity, retentionLabel, externalId, sourceSystem]
+
+  Proposal:
+    views:
+      - name: Active fee proposals
+        default: true
+        columns: [name, proposalNumber, revision, account, opportunity, status, totalAmount, validUntil]
+        order: [[validUntil, asc]]
+        filter: [{column: status, in: [draft, inReview, sent]}]
+      - name: All fee proposals
+        columns: [name, proposalNumber, revision, account, status, totalAmount, issuedOn, acceptedOn]
+        order: [[issuedOn, desc]]
+      - name: Awaiting acceptance
+        columns: [name, account, contact, totalAmount, issuedOn, validUntil, preparedBy]
+        order: [[validUntil, asc]]
+        filter: [{column: status, eq: sent}]
+    form:
+      - tab: Proposal
+        sections:
+          - name: Header
+            columns: [name, proposalNumber, revision, status, billingModel]
+          - name: Client
+            columns: [account, contact, opportunity, preparedBy]
+          - name: Dates
+            columns: [issuedOn, validUntil, acceptedOn]
+          - name: Money
+            columns: [currency, subtotal, discountAmount, taxAmount, totalAmount]
+      - tab: Lines and terms
+        grids:
+          - {table: ProposalLine, column: proposal, label: Lines}
+        sections:
+          - name: Terms
+            columns: [terms, documentUrl, approvalRequest]
+          - name: Classification
+            columns: [sensitivity, retentionLabel]
+
+  ProposalLine:
+    views:
+      - name: Proposal lines
+        default: true
+        columns: [description, proposal, lineNumber, service, quantity, unitPrice, lineTotal]
+        order: [[lineNumber, asc]]
+    form:
+      - tab: Line
+        sections:
+          - name: What
+            columns: [proposal, lineNumber, service, description, phase]
+          - name: Price
+            columns: [quantity, unit, currency, unitPrice, discountPercent, lineTotal]
+
+  Account:
+    views:
+      - name: Active clients
+        default: true
+        columns: [name, accountTier, industry, relationshipManager, clientSince, lastActivityOn]
+        order: [[name, asc]]
+      - name: Strategic clients
+        columns: [name, accountTier, annualRevenue, paymentTerms, relationshipManager]
+        filter: [{column: accountTier, in: [strategic, key]}]
+    form:
+      - tab: Client
+        sections:
+          - name: Commercial
+            columns: [accountTier, clientSince, originalSource, annualRevenue, employeeCount, paymentTerms, creditLimit]
+          - name: Profile
+            columns: [industry, roles, linkedInUrl, registrationNumber, relationshipManager, lastActivityOn]
+          - name: Classification
+            columns: [sensitivity, retentionLabel, externalId, sourceSystem]
+      - tab: Business development
+        grids:
+          - {table: Opportunity, column: account, label: Pitches}
+          - {table: Proposal, column: account, label: Fee proposals}
+          - {table: AccountRelationship, column: fromAccount, label: Related organisations}
+
+  Contact:
+    views:
+      - name: Active contacts
+        default: true
+        columns: [buyingRole, preferredChannel, relationshipOwner, lastActivityOn]
+        order: [[fullname, asc]]
+    form:
+      - tab: Relationship
+        sections:
+          - name: Our relationship
+            columns: [buyingRole, preferredChannel, relationshipOwner, lastActivityOn]
+          - name: Classification
+            columns: [sensitivity, retentionLabel, externalId, sourceSystem]
+      - tab: Consent
+        grids:
+          - {table: ConsentRecord, column: contact, label: Consent history}
+
+  Campaign:
+    views:
+      - name: Active campaigns
+        default: true
+        columns: [name, campaignType, status, startDate, endDate, budget, actualCost]
+        order: [[startDate, desc]]
+        filter: [{column: status, in: [planned, active]}]
+    form:
+      - tab: Campaign
+        sections:
+          - name: Campaign
+            columns: [name, campaignType, status, serviceLine, description]
+          - name: Dates and budget
+            columns: [startDate, endDate, currency, budget, actualCost, expectedResponses]
+      - tab: Members
+        grids:
+          - {table: CampaignMember, column: campaign, label: Members}
+
+  ConsentRecord:
+    views:
+      - name: Consent records
+        default: true
+        columns: [name, contact, lead, purpose, granted, capturedOn, method, expiresOn]
+        order: [[capturedOn, desc]]
+
+  OpportunityTeamMember:
+    views:
+      - name: Pursuit team members
+        default: true
+        columns: [name, opportunity, employee, role, notes]
+
+  PipelineStage:
+    views:
+      - name: Pipeline stages
+        default: true
+        columns: [name, pipeline, sequence, defaultProbability, isClosed, isWon]
+        order: [[pipeline, asc], [sequence, asc]]
+
+  Employee:
+    views:
+      - name: People
+        default: true
+        columns: [displayName, employeeNumber, jobTitle, orgUnit, office, workEmail, employmentStatus]
+        order: [[displayName, asc]]
+
+# Charts added to the solution; usable from any view and on a dashboard.
+charts:
+  - name: Pipeline by stage
+    table: Opportunity
+    type: bar
+    group_by: stage
+    measure: {column: estimatedValue, aggregate: sum}
+    filter: [{column: status, eq: open}]
+  - name: Pitches by practice area
+    table: Opportunity
+    type: pie
+    group_by: serviceLine
+    measure: {column: opportunityid, aggregate: count}
+    filter: [{column: status, eq: open}]
+  - name: Won value by month
+    table: Opportunity
+    type: column
+    group_by: actualCloseDate
+    measure: {column: actualValue, aggregate: sum}
+    filter: [{column: status, eq: won}]
+  - name: Leads by source
+    table: Lead
+    type: column
+    group_by: source
+    measure: {column: leadid, aggregate: count}
+
+# ------------------------------------------------------------------- security
+# Depths: basic (own records) | local (business unit) | deep (BU and children) | global (everyone).
+security:
+  roles:
+    - name: CRM – Business Developer
+      description: Fee earners and BD staff. Own their pitches, see the firm's clients.
+      defaults: {create: basic, read: local, write: basic, delete: none, append: basic, appendto: local, assign: basic, share: basic}
+      overrides:
+        Account: {create: local, read: global, write: local, append: local, appendto: global, assign: local, share: local}
+        Contact: {create: local, read: global, write: local, append: local, appendto: global, assign: local, share: local}
+        Opportunity: {read: global, appendto: global}
+        Proposal: {read: local, write: basic, delete: basic}
+        ProposalLine: {create: basic, read: local, write: basic, delete: basic}
+        OpportunityTeamMember: {create: basic, read: local, write: basic, delete: basic}
+      readonly:
+        - LeadSource
+        - SalesPipeline
+        - PipelineStage
+        - ServiceOffering
+        - Employee
+        - Office
+        - OrgUnit
+        - LegalEntity
+        - Country
+        - Language
+        - TermSet
+        - Term
+        - Currency
+        - ApprovalPolicy
+        - ApprovalPolicyStep
+      native:
+        activitypointer: {read: global, write: basic, create: basic, delete: basic, append: basic, appendto: global}
+        task: {create: basic, read: global, write: basic, delete: basic, append: basic, appendto: global}
+        phonecall: {create: basic, read: global, write: basic, delete: basic, append: basic, appendto: global}
+        appointment: {create: basic, read: global, write: basic, delete: basic, append: basic, appendto: global}
+        annotation: {create: basic, read: global, write: basic, delete: basic, append: basic, appendto: global}
+        transactioncurrency: {read: global}
+
+    - name: CRM – Partner
+      description: Partners and heads of practice. Full visibility and management of the pipeline.
+      defaults: {create: global, read: global, write: global, delete: global, append: global, appendto: global, assign: global, share: global}
+      native:
+        activitypointer: {create: global, read: global, write: global, delete: global, append: global, appendto: global, assign: global, share: global}
+        task: {create: global, read: global, write: global, delete: global, append: global, appendto: global, assign: global, share: global}
+        phonecall: {create: global, read: global, write: global, delete: global, append: global, appendto: global, assign: global, share: global}
+        appointment: {create: global, read: global, write: global, delete: global, append: global, appendto: global, assign: global, share: global}
+        annotation: {create: global, read: global, write: global, delete: global, append: global, appendto: global}
+        transactioncurrency: {read: global}
+
+    - name: CRM – Read only
+      description: Finance, marketing and management who need to see the pipeline but not change it.
+      defaults: {read: global}
+      native:
+        activitypointer: {read: global}
+        task: {read: global}
+        phonecall: {read: global}
+        appointment: {read: global}
+        annotation: {read: global}
+        transactioncurrency: {read: global}

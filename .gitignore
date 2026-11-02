@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 .venv/
 .DS_Store
+
+# Dataverse deployer: local run state and generated payloads
+pilots/*/.deploy-state/
+pilots/*/build/

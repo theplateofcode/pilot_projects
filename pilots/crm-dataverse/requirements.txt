@@ -1,0 +1,4 @@
+# Dataverse deployer for the CRM pilot
+msal>=1.28
+requests>=2.31
+PyYAML>=6.0

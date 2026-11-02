@@ -142,6 +142,7 @@ A profile is the set of layers deployed for one kind of client. `python tools/sc
 | `travel-starter` | Travel portal only (trip requests, bookings, expenses). | `core`, `travel` |
 | `hr-starter` | HR only (people, leave, onboarding, hiring, performance, learning). | `core`, `hr` |
 | `crm-starter` | CRM only (clients, pipeline, proposals, activities). | `core`, `crm` |
+| `law-crm-starter` | CRM for a law firm (clients, pitches, fee proposals) — the CRM pilot's demo profile. | `core`, `crm`, `legal-crm` |
 | `work-starter` | Work management only (projects, tasks, time). | `core`, `work` |
 
 ## Standard columns (traits)

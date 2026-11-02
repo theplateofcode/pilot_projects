@@ -47,8 +47,9 @@ flowchart LR
     G3 --> A3["React / .NET / Node<br/>apps & APIs"]
 ```
 
-Solid arrows exist today; dashed arrows are the generators planned for Phase 7 (until then, build from the
-data dictionary by hand).
+Solid arrows exist today. The Dataverse generator now exists for the CRM pilot
+([`pilots/crm-dataverse/deploy`](../pilots/crm-dataverse/README.md)) and is written to be profile-agnostic;
+the SharePoint and SQL generators are still Phase 7 work (until then, build from the data dictionary by hand).
 
 The model is **layered**. Each layer only adds to the ones below it:
 
@@ -122,7 +123,7 @@ Effort below is a rough guide for one person working full time; scale it to your
 |---|---|---|---|
 | **0. Foundation** | 1–2 weeks | Schema v1 reviewed and tagged; publisher prefix chosen; dev tenant and Dev/Test environments; repo folders for solutions, SharePoint and apps; demo-data plan | `validate` and `docs --check` green in CI; environment access working; open decisions (§9) answered |
 | **1. Core + HR** | 3–4 weeks | Core tables and approval engine in Dataverse; HR model-driven app; employee self-service canvas app (leave, profile, training); onboarding flow; HR Power BI page | Three personas (employee, manager, HR) with security roles; leave request approved end-to-end; compensation invisible to non-HR |
-| **2. CRM** | 3–4 weeks | CRM model-driven app; pipeline and proposal flow; Power Pages client portal; conflict-check process (law overlay) | Lead → opportunity → won → project hand-off works; portal user sees only their own records |
+| **2. CRM** | 3–4 weeks | CRM model-driven app ✅ ([`pilots/crm-dataverse`](../pilots/crm-dataverse/README.md): schema, app, roles, reference and demo data, deployed from the model); pipeline and proposal flow; Power Pages client portal; conflict-check process (law overlay) | Lead → opportunity → won → project hand-off works; portal user sees only their own records |
 | **3. Work Management** | 4–6 weeks | Project/backlog/time app on the chosen stack; timesheet approval; resourcing view; status report; utilisation report | 10k+ demo time entries perform well; project created from a won opportunity |
 | **4. Travel Portal** | 2–3 weeks | SharePoint lists provisioned from template; canvas app (request, approve, expenses with receipt photo); policy checks; duty-of-care view | Trip request → approval → booking → expense claim → paid, with an out-of-policy example |
 | **5. Intranet** | 3–4 weeks | Hub + communication sites from PnP template; news, events, policy library with attestation, service desk; SPFx web parts; Viva Connections dashboard | Audience targeting works; policy attestation report; mobile-friendly |

@@ -13,6 +13,7 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install -r tools/requirements.txt
+      - run: pip install -r pilots/crm-dataverse/requirements.txt
       - name: Validate schemas
         run: python tools/schematool.py validate
       - name: Check generated data dictionary is up to date

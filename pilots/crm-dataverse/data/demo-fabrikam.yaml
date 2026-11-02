@@ -1,0 +1,605 @@
+# Demo data — Fabrikam Legal LLP, the fictional law firm from the roadmap (§8).
+# Loaded by:  python -m deploy.cli deploy --org ... --steps demo
+#
+# References point at rows by their natural key: a code, an ISO code, a name, an externalId,
+# or "@alias" for a row created earlier in this file. Dates may be written as "today+30".
+# Everything is idempotent: a row that is already there is left alone.
+
+data:
+  - table: LegalEntity
+    records:
+      - code: FAB-UK
+        name: Fabrikam Legal LLP
+        registrationNumber: OC398221
+        taxNumber: GB 417 2290 11
+        country: GB
+        baseCurrency: GBP
+        registeredAddressLine1: 18 Lincoln Fields
+        registeredAddressCity: London
+        registeredAddressPostalCode: WC2A 3LH
+        registeredAddressCountry: GB
+        fiscalYearStartMonth: 5
+        timeZone: Europe/London
+
+  - table: OrgUnit
+    records:
+      - {code: FAB-FIRM, name: Fabrikam Legal LLP, unitType: division, legalEntity: FAB-UK, description: The firm}
+      - {code: FAB-LIT, name: Litigation & Dispute Resolution, unitType: practiceGroup, parentOrgUnit: FAB-FIRM, legalEntity: FAB-UK}
+      - {code: FAB-CORP, name: Corporate & M&A, unitType: practiceGroup, parentOrgUnit: FAB-FIRM, legalEntity: FAB-UK}
+      - {code: FAB-EMP, name: Employment, unitType: practiceGroup, parentOrgUnit: FAB-FIRM, legalEntity: FAB-UK}
+      - {code: FAB-BD, name: Business Development, unitType: department, parentOrgUnit: FAB-FIRM, legalEntity: FAB-UK}
+
+  - table: Office
+    records:
+      - code: FAB-LON
+        name: London
+        legalEntity: FAB-UK
+        addressLine1: 18 Lincoln Fields
+        addressCity: London
+        addressPostalCode: WC2A 3LH
+        addressCountry: GB
+        timeZone: Europe/London
+        phone: +44 20 7946 0100
+        isHeadquarters: true
+        deskCapacity: 180
+      - code: FAB-MAN
+        name: Manchester
+        legalEntity: FAB-UK
+        addressLine1: 2 Spinningfields
+        addressCity: Manchester
+        addressPostalCode: M3 3EB
+        addressCountry: GB
+        timeZone: Europe/London
+        phone: +44 161 496 0120
+        isHeadquarters: false
+        deskCapacity: 60
+
+  - table: Employee
+    records:
+      - displayName: Priya Raman
+        firstName: Priya
+        lastName: Raman
+        workEmail: priya.raman@fabrikamlegal.example
+        jobTitle: Managing Partner
+        workerType: partner
+        employmentStatus: active
+        orgUnit: FAB-FIRM
+        office: FAB-LON
+        legalEntity: FAB-UK
+        isPeopleManager: true
+        startDate: "2011-05-03"
+        timeZone: Europe/London
+      - displayName: Tom Okafor
+        firstName: Tom
+        lastName: Okafor
+        workEmail: tom.okafor@fabrikamlegal.example
+        jobTitle: Partner – Corporate & M&A
+        workerType: partner
+        employmentStatus: active
+        orgUnit: FAB-CORP
+        office: FAB-LON
+        legalEntity: FAB-UK
+        manager: Priya Raman
+        isPeopleManager: true
+        startDate: "2014-09-01"
+      - displayName: Elena Marchetti
+        firstName: Elena
+        lastName: Marchetti
+        workEmail: elena.marchetti@fabrikamlegal.example
+        jobTitle: Partner – Litigation
+        workerType: partner
+        employmentStatus: active
+        orgUnit: FAB-LIT
+        office: FAB-LON
+        legalEntity: FAB-UK
+        manager: Priya Raman
+        isPeopleManager: true
+        startDate: "2016-01-11"
+      - displayName: Daniel Osei
+        firstName: Daniel
+        lastName: Osei
+        workEmail: daniel.osei@fabrikamlegal.example
+        jobTitle: Senior Associate – Employment
+        workerType: employee
+        employmentStatus: active
+        orgUnit: FAB-EMP
+        office: FAB-MAN
+        legalEntity: FAB-UK
+        manager: Priya Raman
+        startDate: "2019-04-08"
+      - displayName: Sarah Whitlock
+        firstName: Sarah
+        lastName: Whitlock
+        workEmail: sarah.whitlock@fabrikamlegal.example
+        jobTitle: Head of Business Development
+        workerType: employee
+        employmentStatus: active
+        orgUnit: FAB-BD
+        office: FAB-LON
+        legalEntity: FAB-UK
+        manager: Priya Raman
+        isPeopleManager: true
+        startDate: "2020-02-17"
+      - displayName: Marcus Hale
+        firstName: Marcus
+        lastName: Hale
+        workEmail: marcus.hale@fabrikamlegal.example
+        jobTitle: Bids & Panels Manager
+        workerType: employee
+        employmentStatus: active
+        orgUnit: FAB-BD
+        office: FAB-LON
+        legalEntity: FAB-UK
+        manager: Sarah Whitlock
+        startDate: "2022-06-06"
+
+  - table: ServiceOffering
+    records:
+      - {code: SVC-ADV, name: Legal advisory (hourly), serviceLine: Corporate & M&A, unit: hour, defaultPrice: 450, currency: GBP, description: Partner and associate advisory time billed hourly.}
+      - {code: SVC-TRANS, name: Transaction support – fixed fee, serviceLine: Corporate & M&A, unit: fixed, defaultPrice: 85000, currency: GBP}
+      - {code: SVC-LIT, name: Dispute resolution (hourly), serviceLine: Litigation & dispute resolution, unit: hour, defaultPrice: 395, currency: GBP}
+      - {code: SVC-EMP-RET, name: Employment retainer (monthly), serviceLine: Employment, unit: month, defaultPrice: 6500, currency: GBP}
+      - {code: SVC-DD, name: Due diligence review, serviceLine: Corporate & M&A, unit: fixed, defaultPrice: 42000, currency: GBP}
+      - {code: SVC-TRAIN, name: In-house training day, serviceLine: Employment, unit: day, defaultPrice: 3200, currency: GBP}
+
+  - table: Account
+    records:
+      - name: Brightwater Capital plc
+        _alias: brightwater
+        externalId: FAB-A001
+        accountNumber: FAB-A001
+        website: https://brightwater.example
+        mainPhone: +44 20 7946 0210
+        email: legal@brightwater.example
+        description: Mid-market private equity house. Long-standing corporate client.
+        accountTier: strategic
+        roles: [client]
+        industry: Financial Services
+        clientSince: "2017-03-01"
+        paymentTerms: net30
+        annualRevenue: 240000000
+        employeeCount: 310
+        originalSource: REF_CLIENT
+        relationshipManager: Tom Okafor
+        registrationNumber: "04882190"
+        linkedInUrl: https://www.linkedin.com/company/brightwater-capital
+        sensitivity: confidential
+        address1_line1: 40 Threadneedle Street
+        address1_city: London
+        address1_postalcode: EC2R 8AY
+      - name: Northwind Traders Ltd
+        _alias: northwind
+        externalId: FAB-A002
+        accountNumber: FAB-A002
+        website: https://northwind.example
+        mainPhone: +44 161 496 0330
+        description: Food and drink wholesaler. Employment and commercial work.
+        accountTier: key
+        roles: [client]
+        industry: Retail & Consumer
+        clientSince: "2019-11-12"
+        paymentTerms: net30
+        annualRevenue: 88000000
+        employeeCount: 1450
+        originalSource: REF_PARTNER
+        relationshipManager: Daniel Osei
+        address1_line1: 2 Spinningfields
+        address1_city: Manchester
+        address1_postalcode: M3 3EB
+      - name: Tailspin Toys (UK) Ltd
+        _alias: tailspin
+        externalId: FAB-A003
+        accountNumber: FAB-A003
+        website: https://tailspintoys.example
+        description: Toy manufacturer in a cross-border dispute.
+        accountTier: standard
+        roles: [client]
+        industry: Manufacturing
+        clientSince: "2023-06-20"
+        paymentTerms: net45
+        annualRevenue: 31000000
+        employeeCount: 260
+        originalSource: WEBSITE
+        relationshipManager: Elena Marchetti
+        address1_city: Coventry
+      - name: Contoso Energy Group
+        _alias: contoso
+        externalId: FAB-A004
+        accountNumber: FAB-A004
+        website: https://contoso-energy.example
+        description: Utility prospect. Panel tender in progress.
+        accountTier: key
+        roles: [prospect]
+        industry: Energy & Utilities
+        paymentTerms: net60
+        annualRevenue: 1900000000
+        employeeCount: 7400
+        originalSource: TENDER
+        relationshipManager: Priya Raman
+        address1_city: Birmingham
+      - name: Fourth Coffee Holdings
+        _alias: fourthcoffee
+        externalId: FAB-A005
+        accountNumber: FAB-A005
+        website: https://fourthcoffee.example
+        description: Hospitality group. Bought by Brightwater in 2024.
+        accountTier: standard
+        roles: [client]
+        industry: Retail & Consumer
+        clientSince: "2024-02-05"
+        paymentTerms: net30
+        annualRevenue: 54000000
+        employeeCount: 900
+        originalSource: EXISTING
+        relationshipManager: Tom Okafor
+        address1_city: London
+      - name: Adventure Works Developments
+        _alias: adventureworks
+        externalId: FAB-A006
+        accountNumber: FAB-A006
+        description: Property developer. Real estate and planning disputes.
+        accountTier: standard
+        roles: [prospect]
+        industry: Real Estate & Construction
+        originalSource: EVENT
+        relationshipManager: Elena Marchetti
+        address1_city: Leeds
+      - name: Woodgrove Bank
+        _alias: woodgrove
+        externalId: FAB-A007
+        accountNumber: FAB-A007
+        description: Retail bank. Regulatory panel opportunity.
+        accountTier: strategic
+        roles: [prospect]
+        industry: Financial Services
+        originalSource: LEG_PANEL
+        relationshipManager: Priya Raman
+        sensitivity: confidential
+        address1_city: London
+      - name: Lamna Healthcare Trust
+        _alias: lamna
+        externalId: FAB-A008
+        accountNumber: FAB-A008
+        description: NHS trust. Employment tribunal work via framework.
+        accountTier: transactional
+        roles: [client]
+        industry: Healthcare
+        clientSince: "2022-09-01"
+        paymentTerms: net45
+        originalSource: LEG_PANEL
+        relationshipManager: Daniel Osei
+        address1_city: Bristol
+
+  - table: Contact
+    records:
+      - {externalId: FAB-C001, _alias: c_brightwater_gc, firstName: Helena, lastName: Fitzgerald, salutation: Ms, jobTitle: General Counsel, account: Brightwater Capital plc, email: helena.fitzgerald@brightwater.example, businessPhone: +44 20 7946 0211, buyingRole: decisionMaker, preferredChannel: email, relationshipOwner: Tom Okafor}
+      - {externalId: FAB-C002, _alias: c_brightwater_cfo, firstName: Robert, lastName: Nkemelu, jobTitle: CFO, account: Brightwater Capital plc, email: robert.nkemelu@brightwater.example, buyingRole: economicBuyer, preferredChannel: phone, relationshipOwner: Tom Okafor}
+      - {externalId: FAB-C003, _alias: c_brightwater_ops, firstName: Aisha, lastName: Qureshi, jobTitle: Head of Legal Operations, account: Brightwater Capital plc, email: aisha.qureshi@brightwater.example, buyingRole: influencer, preferredChannel: video}
+      - {externalId: FAB-C004, _alias: c_northwind_hr, firstName: Greg, lastName: Mallory, jobTitle: HR Director, account: Northwind Traders Ltd, email: greg.mallory@northwind.example, buyingRole: decisionMaker, preferredChannel: email, relationshipOwner: Daniel Osei}
+      - {externalId: FAB-C005, _alias: c_northwind_coo, firstName: Lin, lastName: Zhao, jobTitle: COO, account: Northwind Traders Ltd, email: lin.zhao@northwind.example, buyingRole: economicBuyer}
+      - {externalId: FAB-C006, _alias: c_tailspin_gc, firstName: Marco, lastName: Bellini, jobTitle: Group Counsel, account: Tailspin Toys (UK) Ltd, email: marco.bellini@tailspintoys.example, buyingRole: decisionMaker, relationshipOwner: Elena Marchetti}
+      - {externalId: FAB-C007, _alias: c_contoso_proc, firstName: Dervla, lastName: Byrne, jobTitle: Head of Procurement, account: Contoso Energy Group, email: dervla.byrne@contoso-energy.example, buyingRole: gatekeeper, preferredChannel: email}
+      - {externalId: FAB-C008, _alias: c_contoso_gc, firstName: Samir, lastName: Haddad, jobTitle: General Counsel, account: Contoso Energy Group, email: samir.haddad@contoso-energy.example, buyingRole: decisionMaker, relationshipOwner: Priya Raman}
+      - {externalId: FAB-C009, _alias: c_fourth_md, firstName: Isabelle, lastName: Rousseau, jobTitle: Managing Director, account: Fourth Coffee Holdings, email: isabelle.rousseau@fourthcoffee.example, buyingRole: decisionMaker, relationshipOwner: Tom Okafor}
+      - {externalId: FAB-C010, _alias: c_adventure_dev, firstName: Owen, lastName: Pritchard, jobTitle: Development Director, account: Adventure Works Developments, email: owen.pritchard@adventureworks.example, buyingRole: champion}
+      - {externalId: FAB-C011, _alias: c_woodgrove_cro, firstName: Nadia, lastName: Petrova, jobTitle: Chief Risk Officer, account: Woodgrove Bank, email: nadia.petrova@woodgrove.example, buyingRole: decisionMaker, relationshipOwner: Priya Raman}
+      - {externalId: FAB-C012, _alias: c_woodgrove_panel, firstName: Edward, lastName: Blake, jobTitle: Legal Panel Manager, account: Woodgrove Bank, email: edward.blake@woodgrove.example, buyingRole: gatekeeper}
+      - {externalId: FAB-C013, _alias: c_lamna_hr, firstName: Grace, lastName: Adeyemi, jobTitle: Deputy Director of People, account: Lamna Healthcare Trust, email: grace.adeyemi@lamna.example, buyingRole: decisionMaker, relationshipOwner: Daniel Osei}
+      - {externalId: FAB-C014, _alias: c_prospect_ind, firstName: Julian, lastName: Reyes, jobTitle: Founder, email: julian.reyes@relecloud.example, buyingRole: decisionMaker, preferredChannel: phone, description: Met at the Manchester scale-up seminar.}
+
+  - table: Campaign
+    records:
+      - name: Employment law breakfast briefing – Manchester
+        campaignType: event
+        status: completed
+        serviceLine: Employment
+        startDate: today-70
+        endDate: today-70
+        currency: GBP
+        budget: 6500
+        actualCost: 5890
+        expectedResponses: 40
+        description: Breakfast briefing on the Employment Rights Bill for North-West HR directors.
+      - name: Corporate M&A outlook webinar
+        campaignType: webinar
+        status: active
+        serviceLine: Corporate & M&A
+        startDate: today-10
+        endDate: today+20
+        currency: GBP
+        budget: 4000
+        actualCost: 1200
+        expectedResponses: 120
+        description: Quarterly deal-market outlook with the corporate team.
+
+  - table: Lead
+    records:
+      - {topic: Employment retainer enquiry, _alias: l_relecloud, firstName: Julian, lastName: Reyes, companyName: Relecloud Ltd, jobTitle: Founder, email: julian.reyes@relecloud.example, phone: +44 161 496 0444, source: EVENT, campaign: Employment law breakfast briefing – Manchester, status: qualified, rating: hot, serviceLine: Employment, industry: Technology, estimatedValue: 48000, currency: GBP, description: 90-staff SaaS business wants a fixed monthly employment retainer.}
+      - {topic: Share sale advice, lastName: Hollingsworth, firstName: Marianne, companyName: Hollingsworth Group, jobTitle: Owner, email: m.hollingsworth@hollingsworth.example, source: REF_CLIENT, referredBy: FAB-C001, status: contacted, rating: warm, serviceLine: Corporate & M&A, estimatedValue: 120000, currency: GBP, description: Family business planning a sale in 18 months.}
+      - {topic: Supplier dispute – late deliveries, lastName: Kaur, firstName: Simran, companyName: Proseware Inc UK, jobTitle: Operations Director, email: s.kaur@proseware.example, source: WEBSITE, status: new, rating: warm, serviceLine: Litigation & dispute resolution, estimatedValue: 65000, currency: GBP}
+      - {topic: Panel application – legal services, lastName: Byrne, firstName: Dervla, companyName: Contoso Energy Group, jobTitle: Head of Procurement, email: dervla.byrne@contoso-energy.example, source: TENDER, status: qualified, rating: hot, serviceLine: Regulatory & compliance, estimatedValue: 750000, currency: GBP, description: Three-year panel covering regulatory and commercial work.}
+      - {topic: TUPE advice on outsourcing, lastName: Fenwick, firstName: Paul, companyName: Fabrikam Residences, jobTitle: HR Business Partner, email: p.fenwick@fabrikamres.example, source: LINKEDIN, status: nurturing, rating: cold, serviceLine: Employment, estimatedValue: 18000, currency: GBP}
+      - {topic: Data protection audit, lastName: Nakamura, firstName: Yuki, companyName: Wide World Importers, jobTitle: COO, email: y.nakamura@wideworld.example, source: LEG_DIRECTORY, status: contacted, rating: warm, serviceLine: Regulatory & compliance, estimatedValue: 29000, currency: GBP}
+      - {topic: Construction adjudication, lastName: Mensah, firstName: Kwame, companyName: Trey Research Developments, jobTitle: Commercial Manager, email: k.mensah@treyresearch.example, source: REF_PARTNER, status: disqualified, rating: cold, serviceLine: Real estate, estimatedValue: 40000, currency: GBP, disqualifiedReason: Conflict — we act for the other side.}
+
+  - table: Opportunity
+    records:
+      - name: Brightwater – Fourth Coffee bolt-on acquisition
+        _alias: o_bolt_on
+        account: Brightwater Capital plc
+        primaryContact: FAB-C001
+        pipeline: NEW_BUSINESS
+        stage: NB_NEGOTIATE
+        status: open
+        probability: 75
+        currency: GBP
+        estimatedValue: 180000
+        estimatedCloseDate: today+21
+        serviceLine: Corporate & M&A
+        source: EXISTING
+        nextStep: Agree fee cap with the CFO
+        nextStepDate: today+3
+        sensitivity: confidential
+        description: Acquisition of a 14-site hospitality bolt-on, including due diligence and SPA.
+      - name: Northwind – employment retainer renewal
+        _alias: o_northwind_retainer
+        account: Northwind Traders Ltd
+        primaryContact: FAB-C004
+        pipeline: NEW_BUSINESS
+        stage: NB_PROPOSE
+        status: open
+        probability: 50
+        currency: GBP
+        estimatedValue: 78000
+        estimatedCloseDate: today+35
+        serviceLine: Employment
+        source: EXISTING
+        nextStep: Send revised retainer proposal
+        nextStepDate: today+2
+      - name: Tailspin – cross-border supply dispute
+        account: Tailspin Toys (UK) Ltd
+        primaryContact: FAB-C006
+        pipeline: NEW_BUSINESS
+        stage: NB_DISCOVER
+        status: open
+        probability: 25
+        currency: GBP
+        estimatedValue: 240000
+        estimatedCloseDate: today+60
+        serviceLine: Litigation & dispute resolution
+        source: WEBSITE
+        nextStep: Scoping call with group counsel
+        nextStepDate: today+5
+      - name: Contoso Energy – legal services panel
+        _alias: o_contoso_panel
+        account: Contoso Energy Group
+        primaryContact: FAB-C007
+        pipeline: LEG_PANELS
+        stage: LEG_P_RFP
+        status: open
+        probability: 30
+        currency: GBP
+        estimatedValue: 750000
+        estimatedCloseDate: today+90
+        serviceLine: Regulatory & compliance
+        source: TENDER
+        isTender: true
+        tenderDeadline: today+14
+        nextStep: Complete RFP sections 4–7
+        nextStepDate: today+4
+        sensitivity: confidential
+        description: Three-year panel appointment, two of four lots in scope.
+      - name: Woodgrove Bank – regulatory panel re-tender
+        account: Woodgrove Bank
+        primaryContact: FAB-C012
+        pipeline: LEG_PANELS
+        stage: LEG_P_EOI
+        status: open
+        probability: 10
+        currency: GBP
+        estimatedValue: 420000
+        estimatedCloseDate: today+120
+        serviceLine: Regulatory & compliance
+        source: LEG_PANEL
+        isTender: true
+        tenderDeadline: today+28
+        nextStep: Submit expression of interest
+        nextStepDate: today+7
+      - name: Relecloud – employment retainer
+        account: Brightwater Capital plc
+        pipeline: NEW_BUSINESS
+        stage: NB_QUALIFY
+        status: open
+        probability: 10
+        currency: GBP
+        estimatedValue: 48000
+        estimatedCloseDate: today+45
+        serviceLine: Employment
+        source: EVENT
+        originatingLead: Employment retainer enquiry
+        campaign: Employment law breakfast briefing – Manchester
+        nextStep: Qualification call
+        nextStepDate: today+6
+        description: Converted from the Manchester breakfast briefing. Account to be re-pointed once set up.
+      - name: Adventure Works – planning appeal
+        account: Adventure Works Developments
+        primaryContact: FAB-C010
+        pipeline: NEW_BUSINESS
+        stage: NB_PROPOSE
+        status: open
+        probability: 50
+        currency: GBP
+        estimatedValue: 95000
+        estimatedCloseDate: today+30
+        serviceLine: Real estate
+        source: EVENT
+        nextStep: Fee proposal with staged payments
+        nextStepDate: today+1
+      - name: Lamna Healthcare – tribunal framework call-off
+        account: Lamna Healthcare Trust
+        primaryContact: FAB-C013
+        pipeline: NEW_BUSINESS
+        stage: NB_WON
+        status: won
+        probability: 100
+        currency: GBP
+        estimatedValue: 64000
+        actualValue: 61500
+        estimatedCloseDate: today-14
+        actualCloseDate: today-12
+        serviceLine: Employment
+        source: LEG_PANEL
+      - name: Fourth Coffee – franchise restructuring
+        account: Fourth Coffee Holdings
+        primaryContact: FAB-C009
+        pipeline: NEW_BUSINESS
+        stage: NB_WON
+        status: won
+        probability: 100
+        currency: GBP
+        estimatedValue: 130000
+        actualValue: 142000
+        estimatedCloseDate: today-40
+        actualCloseDate: today-33
+        serviceLine: Corporate & M&A
+        source: REF_CLIENT
+      - name: Trey Research – construction adjudication
+        account: Adventure Works Developments
+        pipeline: NEW_BUSINESS
+        stage: NB_LOST
+        status: lost
+        probability: 0
+        currency: GBP
+        estimatedValue: 40000
+        estimatedCloseDate: today-20
+        actualCloseDate: today-18
+        serviceLine: Real estate
+        lossReason: conflictOfInterest
+        competitorName: Proseware Legal
+        description: Declined — we act for the counterparty.
+
+  - table: OpportunityTeamMember
+    records:
+      - {opportunity: Brightwater – Fourth Coffee bolt-on acquisition, employee: Tom Okafor, role: lead, notes: Deal partner}
+      - {opportunity: Brightwater – Fourth Coffee bolt-on acquisition, employee: Sarah Whitlock, role: pricing, notes: Fee model and discount approval}
+      - {opportunity: Contoso Energy – legal services panel, employee: Priya Raman, role: executiveSponsor}
+      - {opportunity: Contoso Energy – legal services panel, employee: Marcus Hale, role: lead, notes: Owns the RFP response}
+      - {opportunity: Contoso Energy – legal services panel, employee: Daniel Osei, role: technicalExpert, notes: Employment lot}
+      - {opportunity: Northwind – employment retainer renewal, employee: Daniel Osei, role: lead}
+      - {opportunity: Tailspin – cross-border supply dispute, employee: Elena Marchetti, role: lead}
+
+  - table: Proposal
+    records:
+      - name: Bolt-on acquisition – fee proposal
+        proposalNumber: PRP-000101
+        revision: 2
+        opportunity: Brightwater – Fourth Coffee bolt-on acquisition
+        account: Brightwater Capital plc
+        contact: FAB-C001
+        status: sent
+        billingModel: cappedFee
+        issuedOn: today-6
+        validUntil: today+24
+        currency: GBP
+        discountAmount: 5000
+        taxAmount: 34000
+        preparedBy: Tom Okafor
+        sensitivity: confidential
+        terms: Capped fee of £180,000 excluding VAT and disbursements. Capped at 110% of estimate.
+      - name: Employment retainer 2026/27
+        proposalNumber: PRP-000102
+        revision: 1
+        opportunity: Northwind – employment retainer renewal
+        account: Northwind Traders Ltd
+        contact: FAB-C004
+        status: inReview
+        billingModel: retainer
+        validUntil: today+40
+        currency: GBP
+        taxAmount: 15600
+        preparedBy: Daniel Osei
+        terms: 12-month retainer, £6,500 per month, 20 hours included.
+      - name: Contoso panel – lots 2 and 3
+        proposalNumber: PRP-000103
+        revision: 1
+        opportunity: Contoso Energy – legal services panel
+        account: Contoso Energy Group
+        contact: FAB-C007
+        status: draft
+        billingModel: timeAndMaterials
+        validUntil: today+45
+        currency: GBP
+        preparedBy: Marcus Hale
+        sensitivity: confidential
+        terms: Rate card held for three years with an annual CPI review.
+      - name: Planning appeal – staged fee
+        proposalNumber: PRP-000104
+        revision: 1
+        opportunity: Adventure Works – planning appeal
+        account: Adventure Works Developments
+        contact: FAB-C010
+        status: accepted
+        billingModel: milestone
+        issuedOn: today-9
+        validUntil: today+21
+        acceptedOn: today-2
+        currency: GBP
+        taxAmount: 19000
+        preparedBy: Elena Marchetti
+
+  - table: ProposalLine
+    records:
+      - {proposal: PRP-000101, lineNumber: 1, service: SVC-DD, description: Legal due diligence on 14 sites, phase: Diligence, quantity: 1, unit: fixed, unitPrice: 42000, currency: GBP}
+      - {proposal: PRP-000101, lineNumber: 2, service: SVC-TRANS, description: SPA drafting and negotiation, phase: Transaction, quantity: 1, unit: fixed, unitPrice: 85000, currency: GBP}
+      - {proposal: PRP-000101, lineNumber: 3, service: SVC-ADV, description: Partner advisory time (estimate), phase: Transaction, quantity: 120, unit: hour, unitPrice: 450, discountPercent: 10, currency: GBP}
+      - {proposal: PRP-000102, lineNumber: 1, service: SVC-EMP-RET, description: Monthly employment retainer, quantity: 12, unit: month, unitPrice: 6500, currency: GBP}
+      - {proposal: PRP-000102, lineNumber: 2, service: SVC-TRAIN, description: Manager training days, quantity: 2, unit: day, unitPrice: 3200, currency: GBP}
+      - {proposal: PRP-000103, lineNumber: 1, service: SVC-ADV, description: Lot 2 – regulatory advisory rate card, quantity: 1, unit: fixed, unitPrice: 0, currency: GBP}
+      - {proposal: PRP-000103, lineNumber: 2, service: SVC-LIT, description: Lot 3 – disputes rate card, quantity: 1, unit: fixed, unitPrice: 0, currency: GBP}
+      - {proposal: PRP-000104, lineNumber: 1, service: SVC-ADV, description: Stage 1 – appeal statement of case, phase: Stage 1, quantity: 60, unit: hour, unitPrice: 395, currency: GBP}
+      - {proposal: PRP-000104, lineNumber: 2, service: SVC-ADV, description: Stage 2 – inquiry representation, phase: Stage 2, quantity: 80, unit: hour, unitPrice: 450, currency: GBP}
+
+  - table: CampaignMember
+    records:
+      - {campaign: Employment law breakfast briefing – Manchester, contact: FAB-C004, status: attended, respondedOn: today-70}
+      - {campaign: Employment law breakfast briefing – Manchester, contact: FAB-C005, status: noShow}
+      - {campaign: Employment law breakfast briefing – Manchester, contact: FAB-C013, status: attended, respondedOn: today-70}
+      - {campaign: Employment law breakfast briefing – Manchester, lead: Employment retainer enquiry, status: attended, respondedOn: today-70}
+      - {campaign: Corporate M&A outlook webinar, contact: FAB-C001, status: registered, respondedOn: today-8}
+      - {campaign: Corporate M&A outlook webinar, contact: FAB-C002, status: invited}
+      - {campaign: Corporate M&A outlook webinar, contact: FAB-C009, status: registered, respondedOn: today-7}
+      - {campaign: Corporate M&A outlook webinar, contact: FAB-C011, status: unsubscribed, respondedOn: today-6}
+
+  - table: ConsentRecord
+    records:
+      - {contact: FAB-C001, purpose: marketingEmail, granted: true, capturedOn: "2024-04-18T09:12:00Z", method: webForm, source: Insights sign-up form}
+      - {contact: FAB-C001, purpose: eventInvitations, granted: true, capturedOn: "2024-04-18T09:12:00Z", method: webForm, source: Insights sign-up form}
+      - {contact: FAB-C004, purpose: marketingEmail, granted: true, capturedOn: "2025-01-22T14:40:00Z", method: email, source: Employment briefing registration}
+      - {contact: FAB-C011, purpose: marketingEmail, granted: false, capturedOn: today-6, method: webForm, source: Unsubscribe link – M&A webinar}
+      - {contact: FAB-C013, purpose: newsletters, granted: true, capturedOn: "2025-06-03T08:00:00Z", method: verbal, source: Confirmed by phone with Daniel Osei}
+      - {lead: Employment retainer enquiry, purpose: eventInvitations, granted: true, capturedOn: today-70, method: paperForm, source: Breakfast briefing registration card}
+
+  - table: AccountRelationship
+    records:
+      - {fromAccount: Brightwater Capital plc, toAccount: Fourth Coffee Holdings, relationshipType: owns, startDate: "2024-02-05", notes: Majority stake acquired February 2024 — check conflicts across both.}
+      - {fromAccount: Brightwater Capital plc, toAccount: Contoso Energy Group, relationshipType: affiliate, notes: Minority investor; relevant to the panel tender.}
+      - {fromAccount: Northwind Traders Ltd, toAccount: Tailspin Toys (UK) Ltd, relationshipType: serviceProvider, startDate: "2023-01-10", notes: Northwind distributes for Tailspin.}
+
+  # Interactions use the native Dataverse activity tables, as the schema prescribes.
+  - table: native:phonecall
+    records:
+      - {subject: Fee cap discussion with CFO, description: "Robert pushed for a hard cap; agreed to come back with a capped-fee option.", regarding: "Opportunity:Brightwater – Fourth Coffee bolt-on acquisition", actualdurationminutes: 25, scheduledend: today-4, directioncode: true}
+      - {subject: Scoping call – supply dispute, description: "Reviewed the contract chain and limitation dates.", regarding: "Opportunity:Tailspin – cross-border supply dispute", actualdurationminutes: 40, scheduledend: today-2, directioncode: false}
+      - {subject: Panel clarification questions, description: "Procurement confirmed lots 2 and 3 can be bid separately.", regarding: "Opportunity:Contoso Energy – legal services panel", actualdurationminutes: 15, scheduledend: today-1, directioncode: true}
+  - table: native:task
+    records:
+      - {subject: Complete RFP sections 4–7, description: "Quality, resourcing and pricing narrative for lots 2 and 3.", regarding: "Opportunity:Contoso Energy – legal services panel", scheduledend: today+4, prioritycode: 2}
+      - {subject: Send revised retainer proposal, description: "Include the two training days and the 20-hour inclusive band.", regarding: "Opportunity:Northwind – employment retainer renewal", scheduledend: today+2, prioritycode: 2}
+      - {subject: Conflict check before the planning appeal, regarding: "Opportunity:Adventure Works – planning appeal", scheduledend: today+1, prioritycode: 1}
+      - {subject: Chase acceptance of PRP-000101, regarding: "Opportunity:Brightwater – Fourth Coffee bolt-on acquisition", scheduledend: today+3, prioritycode: 1}
+      - {subject: Qualification call with Relecloud, regarding: "Opportunity:Relecloud – employment retainer", scheduledend: today+6, prioritycode: 1}
+      - {subject: Submit expression of interest, regarding: "Opportunity:Woodgrove Bank – regulatory panel re-tender", scheduledend: today+7, prioritycode: 2}
+  - table: native:appointment
+    records:
+      - {subject: Pitch rehearsal – Contoso panel, description: "Run through the 20-minute pitch with the full team.", regarding: "Opportunity:Contoso Energy – legal services panel", scheduledstart: today+9, scheduledend: today+9, location: "London – Lincoln Fields, Room 4"}
+      - {subject: Client review meeting – Brightwater, description: "Quarterly relationship review with the GC.", regarding: "Account:Brightwater Capital plc", scheduledstart: today+12, scheduledend: today+12, location: 40 Threadneedle Street}

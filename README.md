@@ -6,8 +6,9 @@ HR** — built on one canonical, platform-neutral data model that can be deploye
 (pro-code apps), and adapted to **architecture, law, accounting, technology or any other firm** through
 overlay layers instead of copies.
 
-> **Status:** schema v1.0.0 designed and validated. Next step: review it, then build the first pilot — see
-> the [plan and roadmap](docs/01-plan-and-roadmap.md).
+> **Status:** schema v1.0.0 designed and validated. The **CRM pilot** now deploys to Dataverse from the
+> schema — see [`pilots/crm-dataverse`](pilots/crm-dataverse/README.md). Next: the rest of the build order
+> in the [plan and roadmap](docs/01-plan-and-roadmap.md).
 
 ## What's here
 
@@ -19,6 +20,7 @@ overlay layers instead of copies.
 | [**Schema format**](docs/04-schema-format.md) | How to read and write the YAML; what the validator checks |
 | [**Industry adaptation**](docs/05-industry-adaptation.md) | Same concept, different words; what each overlay adds; client adaptation playbook |
 | [**Data dictionary**](docs/data-dictionary/README.md) | Every table and column with Dataverse / SharePoint / SQL mappings and ER diagrams (generated) |
+| [**CRM pilot**](pilots/crm-dataverse/README.md) | Deploys the CRM to Dataverse from the schema: 30 tables, views, forms, charts, a model-driven app, three security roles, reference and demo data |
 
 ## The model at a glance
 
@@ -71,6 +73,7 @@ schemas/
   industries/               industry overlays (one YAML document per overlay layer)
   profiles.yaml             which layers each kind of client gets
 tools/schematool.py         validate · generate docs · export a resolved model
+pilots/crm-dataverse/       CRM pilot: Dataverse deployer, app spec and demo data
 tests/                      tests for the tool and a guard that the repo schemas stay valid
 docs/                       plan, strategy, principles, format, adaptation playbook
 docs/data-dictionary/       generated — do not edit by hand
@@ -89,4 +92,23 @@ python -m unittest discover -s tests                    # tests
 CI runs all of these on every push, so the YAML, the rules and the dictionary cannot drift apart.
 
 Profiles: `general-firm`, `architecture-firm`, `law-firm`, `accounting-firm`, `tech-company`, plus
-single-pilot starters `travel-starter`, `work-starter`, `crm-starter`, `hr-starter`, `intranet-starter`.
+single-pilot starters `travel-starter`, `work-starter`, `crm-starter`, `law-crm-starter`, `hr-starter`,
+`intranet-starter`.
+
+## Deploying the CRM pilot
+
+```bash
+pip install -r pilots/crm-dataverse/requirements.txt
+```
+
+```bash
+cd pilots/crm-dataverse && python -m deploy.cli plan
+```
+
+```bash
+cd pilots/crm-dataverse && python -m deploy.cli deploy --org https://yourorg.crm.dynamics.com --assign-me
+```
+
+`plan` is offline and writes every payload it would send to `build/payloads/`; `deploy` signs in with a
+device code and is idempotent, so it can be re-run after a failure. Details and limits:
+[`pilots/crm-dataverse/README.md`](pilots/crm-dataverse/README.md).

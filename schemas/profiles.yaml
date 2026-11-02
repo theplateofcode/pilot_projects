@@ -44,6 +44,10 @@ profiles:
     description: CRM only (clients, pipeline, proposals, activities).
     layers: [core, crm]
 
+  law-crm-starter:
+    description: CRM for a law firm (clients, pitches, fee proposals) — the CRM pilot's demo profile.
+    layers: [core, crm, legal-crm]
+
   work-starter:
     description: Work management only (projects, tasks, time).
     layers: [core, work]
