@@ -65,12 +65,13 @@ class ModelTests(unittest.TestCase):
         cls.dv, cls.model, cls.config, cls.state = build()
 
     def test_standard_tables_are_extended_not_duplicated(self):
+        prefix = self.model.prefix
         logicals = {t.logical for t in self.model.tables.values()}
         self.assertIn("account", logicals)
         self.assertIn("contact", logicals)
         self.assertIn("transactioncurrency", logicals)
-        self.assertNotIn("pfx_account", logicals)
-        self.assertNotIn("pfx_contact", logicals)
+        self.assertNotIn(f"{prefix}_account", logicals)
+        self.assertNotIn(f"{prefix}_contact", logicals)
 
     def test_native_columns_are_not_recreated(self):
         account = self.model.tables["Account"]
@@ -79,7 +80,7 @@ class ModelTests(unittest.TestCase):
         self.assertNotIn("telephone1", created)
         self.assertEqual(account.logical_of("name"), "name")
         self.assertEqual(account.logical_of("mainPhone"), "telephone1")
-        self.assertEqual(account.logical_of("accountTier"), "pfx_accounttier")
+        self.assertEqual(account.logical_of("accountTier"), f"{self.model.prefix}_accounttier")
 
     def test_every_column_has_a_payload_or_relationship(self):
         for table in self.model.tables.values():
@@ -161,8 +162,11 @@ class ModelTests(unittest.TestCase):
 
     def test_address_expands_into_five_columns_and_a_country_lookup(self):
         office = self.model.tables["Office"]
-        self.assertEqual(office.logical_of("addressCity"), "pfx_addresscity")
-        self.assertEqual(office.column("addressCountry").relationship["ReferencedEntity"], "pfx_country")
+        prefix = self.model.prefix
+        self.assertEqual(office.logical_of("addressCity"), f"{prefix}_addresscity")
+        self.assertEqual(
+            office.column("addressCountry").relationship["ReferencedEntity"], f"{prefix}_country"
+        )
 
     def test_polymorphic_regarding_becomes_table_plus_id(self):
         comment = self.model.tables["Comment"]
@@ -172,7 +176,7 @@ class ModelTests(unittest.TestCase):
     def test_multilookup_becomes_many_to_many(self):
         column = self.model.tables["Employee"].column("languages")
         self.assertEqual(column.kind, "manytomany")
-        self.assertEqual(column.relationship["Entity2LogicalName"], "pfx_language")
+        self.assertEqual(column.relationship["Entity2LogicalName"], f"{self.model.prefix}_language")
 
     def test_alternate_keys_only_use_deployed_columns(self):
         for table in self.model.custom_tables:
@@ -183,16 +187,23 @@ class ModelTests(unittest.TestCase):
                         f"{table.logical}: key column {logical}",
                     )
 
+    def test_configured_prefix_is_valid_for_dataverse(self):
+        prefix = self.config["solution"]["publisher"]["prefix"]
+        self.assertRegex(prefix, r"^[a-z][a-z0-9]{1,7}$", "2-8 chars, letters and digits, starts with a letter")
+        self.assertFalse(prefix.startswith("mscrm"), "mscrm is reserved")
+        option_prefix = int(self.config["solution"]["publisher"]["option_value_prefix"])
+        self.assertTrue(10000 <= option_prefix <= 99999)
+
     def test_terminology_from_the_overlay_reaches_the_labels(self):
         self.assertEqual(self.model.tables["Opportunity"].display, "Pitch")
         self.assertEqual(self.model.tables["Proposal"].plural, "Fee Proposals")
 
     def test_excluding_a_required_target_is_an_error(self):
         with self.assertRaises(ScopeError):
-            CrmModel(ensure_model(), "pfx", ["Opportunity"], ["Account"])
+            CrmModel(ensure_model(), "zz", ["Opportunity"], ["Account"])
 
     def test_scope_pulls_in_required_parents(self):
-        small = CrmModel(ensure_model(), "pfx", ["Opportunity"])
+        small = CrmModel(ensure_model(), "zz", ["Opportunity"])
         names = set(small.tables)
         self.assertLessEqual({"Opportunity", "Account", "SalesPipeline", "PipelineStage", "Currency"}, names)
 
@@ -233,7 +244,7 @@ class UxTests(unittest.TestCase):
         table = self.model.tables["Opportunity"]
         xml = self.ux.condition_xml(table, {"column": "status", "eq": "won"})
         self.assertIn('value="2"', xml)
-        self.assertIn('attribute="pfx_status"', xml)
+        self.assertIn(f'attribute="{self.model.prefix}_status"', xml)
 
     def test_unknown_choice_in_a_filter_is_dropped_not_guessed(self):
         table = self.model.tables["Opportunity"]
@@ -274,7 +285,7 @@ class UxTests(unittest.TestCase):
     def test_subgrids_reference_a_real_relationship(self):
         table = self.model.tables["Opportunity"]
         xml = self.ux.subgrid_xml(table, {"table": "Proposal", "column": "opportunity", "label": "Fee proposals"})
-        self.assertIn("<TargetEntityType>pfx_proposal</TargetEntityType>", xml)
+        self.assertIn(f"<TargetEntityType>{self.model.prefix}_proposal</TargetEntityType>", xml)
         relationship = self.model.tables["Proposal"].column("opportunity").relationship["SchemaName"]
         self.assertIn(relationship, xml)
 
@@ -282,7 +293,7 @@ class UxTests(unittest.TestCase):
         xml = self.ux.site_map_xml()
         tree = ElementTree.fromstring(xml)
         entities = {sub.get("Entity") for sub in tree.iter("SubArea")}
-        self.assertIn("pfx_opportunity", entities)
+        self.assertIn(f"{self.model.prefix}_opportunity", entities)
         self.assertIn("account", entities)
         self.assertIn("activitypointer", entities)
         self.assertEqual(len(list(tree.iter("Area"))), len(self.config["app"]["areas"]))
@@ -330,8 +341,9 @@ class SecurityTests(unittest.TestCase):
     def test_readonly_tables_are_read_only_for_business_developers(self):
         role = next(r for r in self.config["security"]["roles"] if "Business Developer" in r["name"])
         wanted = self.security.wanted_privileges(role)
-        self.assertEqual(wanted["pfx_pipelinestage"], {"read": "global"})
-        self.assertIn("write", wanted["pfx_opportunity"])
+        prefix = self.security.model.prefix
+        self.assertEqual(wanted[f"{prefix}_pipelinestage"], {"read": "global"})
+        self.assertIn("write", wanted[f"{prefix}_opportunity"])
 
     def test_depth_is_clamped_to_what_the_privilege_allows(self):
         privilege = {"CanBeBasic": True, "CanBeLocal": True, "CanBeDeep": False, "CanBeGlobal": False}
@@ -402,8 +414,8 @@ class DataTests(unittest.TestCase):
     def test_lookups_in_demo_data_bind_by_reference(self):
         table = self.model.tables["Opportunity"]
         body = self.data.build_body(table, {"name": "X", "account": "Brightwater Capital plc", "status": "open"})
-        self.assertIn("pfx_account@odata.bind", body)
-        self.assertEqual(body["pfx_status"], 1)
+        self.assertIn(f"{self.model.prefix}_account@odata.bind", body)
+        self.assertEqual(body[f"{self.model.prefix}_status"], 1)
 
     def test_customer_lookups_get_a_table_qualified_bind(self):
         body = self.data.build_body(self.model.tables["Contact"], {"account": "Brightwater Capital plc"})

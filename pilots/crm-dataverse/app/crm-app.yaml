@@ -9,15 +9,15 @@ solution:
   publisher:
     uniquename: pilotprojects
     friendlyname: Pilot Projects
-    prefix: pfx                 # also the column/table prefix; change before the first deploy
+    prefix: crm                 # also the column/table prefix; change before the first deploy
     option_value_prefix: 32100   # 10000-99999, unique per publisher in the tenant
-  uniquename: pfx_crm
+  uniquename: crm_pilot
   friendlyname: CRM Pilot
   version: 1.0.0.0
   description: Clients, pitches, fee proposals, campaigns and consent — built from the canonical model.
 
 app:
-  uniquename: pfx_crm_app
+  uniquename: crm_app
   name: CRM
   description: Business development for a professional-services firm.
   # Shown in the app's site map. Subareas accept either a canonical table name (Opportunity)
