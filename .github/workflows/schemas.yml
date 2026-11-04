@@ -54,6 +54,14 @@ jobs:
       - name: Generate SQL migrations
         run: python tools/sqlgen.py --profile hr-starter --strict
 
+      # Travel and the Intranet are the SharePoint pilots. --strict here would
+      # fail on the lookup-threshold warnings, which are information about the
+      # platform rather than a defect, so the limits report carries them instead.
+      - name: Generate the SharePoint templates
+        run: |
+          python tools/spgen.py --profile travel-starter --prefix pfx --site "Northwind Travel"
+          python tools/spgen.py --profile intranet-starter --prefix pfx --site "Adatum Intranet"
+
       # A full-profile run catches anything an overlay adds that the starter
       # profile does not exercise.
       - name: Generate the full accounting-firm plan
@@ -61,3 +69,6 @@ jobs:
 
       - name: Generate the full accounting-firm SQL
         run: python tools/sqlgen.py --profile accounting-firm --strict
+
+      - name: Generate the full accounting-firm SharePoint template
+        run: python tools/spgen.py --profile accounting-firm --prefix pfx --site Woodgrove
