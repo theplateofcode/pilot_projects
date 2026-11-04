@@ -1,0 +1,490 @@
+# HR analytics dashboard — Phase 1.
+#
+# Declares which tables the semantic model loads, the measures over them and the
+# report pages. tools/pbigen.py builds the PBIP from this plus the resolved
+# model, and checks every DAX reference against the generated columns, so a
+# renamed schema column fails the build instead of the refresh.
+#
+#   python tools/pbigen.py --profile hr-starter --prefix wga
+#
+# Dressed for Woodgrove Advisory (accounting firm): CPE compliance and
+# credential expiry sit on the first page beside headcount, because for an
+# audit firm a lapsed practising certificate is a client-facing risk.
+
+meta:
+  name: HR Analytics
+  description: Headcount, leave, CPE compliance and recruitment for an accounting firm.
+  profile: hr-starter
+  prefix: wga
+  storageMode: import
+  # The Dataverse TDS endpoint. Set per environment when the report is published.
+  environmentParameter: DataverseEnvironment
+  defaultEnvironment: woodgrove-dev.crm11.dynamics.com
+  culture: en-GB
+
+# Tables the model loads. Lookups between any two of these become relationships.
+tables:
+  - Employee
+  - Employment
+  - JobAssignment
+  - OrgUnit
+  - CostCenter
+  - Office
+  - LegalEntity
+  - JobFamily
+  - JobProfile
+  - Position
+  - Grade
+  - LeaveType
+  - LeaveRequest
+  - LeaveBalance
+  - CredentialType
+  - EmployeeCredential
+  - TrainingCourse
+  - TrainingRecord
+  - ReviewCycle
+  - PerformanceReview
+  - JobRequisition
+  - Candidate
+  - JobApplication
+  - ApprovalRequest
+  - ApprovalStep
+
+# Columns no reader should see. Compensation is not in `tables` at all: the
+# dataset must not carry pay, so the Phase 1 exit criterion holds in Power BI
+# as well as in Dataverse. Pay-range reporting gets its own workspace and
+# dataset for the reward team, which is Phase 6 work.
+hide:
+  - Employee.entraObjectId
+  - EmployeeCredential.credentialNumber
+  - JobRequisition.salaryMin
+  - JobRequisition.salaryMax
+
+dateTable:
+  name: Date
+  from: 2022-01-01
+  yearEndMonth: 3        # UK accounting firm: year ends 31 March
+  markAsDateTable: true
+
+measures:
+  # --- Headcount -------------------------------------------------------------
+  - name: Headcount
+    folder: Headcount
+    format: "#,0"
+    description: >
+      People with a current job assignment — the row whose validFrom has passed
+      and whose validTo is empty or in the future. Counts people, not assignments,
+      so a secondment does not double-count.
+    expression: |
+      CALCULATE(
+          DISTINCTCOUNT( 'JobAssignment'[employee] ),
+          'JobAssignment'[isPrimary] = TRUE(),
+          'JobAssignment'[validFrom] <= MAX( 'Date'[Date] ),
+          FILTER(
+              'JobAssignment',
+              ISBLANK( 'JobAssignment'[validTo] ) || 'JobAssignment'[validTo] > MAX( 'Date'[Date] )
+          )
+      )
+
+  - name: FTE
+    folder: Headcount
+    format: "#,0.0"
+    description: Full-time equivalent of the current assignments, for part-time-aware planning.
+    expression: |
+      CALCULATE(
+          SUMX( 'JobAssignment', 'JobAssignment'[fte] ),
+          'JobAssignment'[isPrimary] = TRUE(),
+          FILTER(
+              'JobAssignment',
+              ISBLANK( 'JobAssignment'[validTo] ) || 'JobAssignment'[validTo] > MAX( 'Date'[Date] )
+          )
+      )
+
+  - name: Starters
+    folder: Headcount
+    format: "#,0"
+    description: Employments beginning in the period.
+    expression: |
+      CALCULATE(
+          COUNTROWS( 'Employment' ),
+          USERELATIONSHIP( 'Employment'[startDate], 'Date'[Date] )
+      )
+
+  - name: Leavers
+    folder: Headcount
+    format: "#,0"
+    description: Employments ending in the period.
+    expression: |
+      CALCULATE(
+          COUNTROWS( 'Employment' ),
+          USERELATIONSHIP( 'Employment'[endDate], 'Date'[Date] ),
+          NOT ISBLANK( 'Employment'[endDate] )
+      )
+
+  - name: Net Movement
+    folder: Headcount
+    format: "+#,0;-#,0;0"
+    description: Starters less leavers.
+    expression: "[Starters] - [Leavers]"
+
+  - name: Attrition %
+    folder: Headcount
+    format: "0.0%"
+    description: >
+      Leavers in the last twelve months over average headcount across those
+      months. Rolling rather than year-to-date, so it does not reset each April.
+    expression: |
+      VAR Window = DATESINPERIOD( 'Date'[Date], MAX( 'Date'[Date] ), -12, MONTH )
+      VAR LeaversInWindow = CALCULATE( [Leavers], Window )
+      VAR AverageHeadcount =
+          AVERAGEX( VALUES( 'Date'[Year Month] ), CALCULATE( [Headcount], Window ) )
+      RETURN DIVIDE( LeaversInWindow, AverageHeadcount )
+
+  - name: Voluntary Attrition %
+    folder: Headcount
+    format: "0.0%"
+    description: The part of attrition the firm could have prevented.
+    expression: |
+      VAR Window = DATESINPERIOD( 'Date'[Date], MAX( 'Date'[Date] ), -12, MONTH )
+      VAR VoluntaryLeavers =
+          CALCULATE( [Leavers], Window, 'Employment'[terminationTypename] = "Voluntary" )
+      VAR AverageHeadcount =
+          AVERAGEX( VALUES( 'Date'[Year Month] ), CALCULATE( [Headcount], Window ) )
+      RETURN DIVIDE( VoluntaryLeavers, AverageHeadcount )
+
+  - name: Average Tenure (Years)
+    folder: Headcount
+    format: "#,0.0"
+    description: Mean completed service of current staff, from continuous service date where set.
+    expression: |
+      AVERAGEX(
+          FILTER( 'Employment', ISBLANK( 'Employment'[endDate] ) ),
+          DATEDIFF(
+              COALESCE( 'Employment'[continuousServiceDate], 'Employment'[startDate] ),
+              TODAY(),
+              DAY
+          ) / 365.25
+      )
+
+  # --- Leave -----------------------------------------------------------------
+  - name: Leave Days Taken
+    folder: Leave
+    format: "#,0.0"
+    description: Days of approved leave whose start date falls in the period.
+    expression: |
+      CALCULATE(
+          SUM( 'LeaveRequest'[duration] ),
+          'LeaveRequest'[statusname] IN { "Approved", "Taken" }
+      )
+
+  - name: Leave Requests Pending
+    folder: Leave
+    format: "#,0"
+    description: Submitted requests with no decision yet — the manager's queue.
+    expression: |
+      CALCULATE(
+          COUNTROWS( 'LeaveRequest' ),
+          'LeaveRequest'[statusname] = "Submitted"
+      )
+
+  - name: Leave Liability (Days)
+    folder: Leave
+    format: "#,0.0"
+    description: >
+      Accrued leave not yet taken, across current leave years. The number finance
+      needs for the accrual, so it uses the balance table rather than requests.
+    expression: |
+      CALCULATE(
+          SUMX( 'LeaveBalance', 'LeaveBalance'[available] ),
+          FILTER(
+              'LeaveBalance',
+              'LeaveBalance'[periodStart] <= TODAY() && 'LeaveBalance'[periodEnd] >= TODAY()
+          )
+      )
+
+  - name: Leave Utilisation %
+    folder: Leave
+    format: "0.0%"
+    description: Taken over entitlement, to spot both burnout and a year-end rush.
+    expression: |
+      DIVIDE(
+          SUM( 'LeaveBalance'[taken] ),
+          SUM( 'LeaveBalance'[entitlement] ) + SUM( 'LeaveBalance'[carriedOver] )
+      )
+
+  - name: Avg Leave Approval Hours
+    folder: Leave
+    format: "#,0.0"
+    description: >
+      Mean hours from assignment to decision on a decided approval step. The
+      service-level number for the leave process; the exit criterion for Phase 1
+      is that this is measurable end to end.
+    expression: |
+      AVERAGEX(
+          FILTER( 'ApprovalStep', NOT ISBLANK( 'ApprovalStep'[decidedOn] ) ),
+          DATEDIFF( 'ApprovalStep'[assignedOn], 'ApprovalStep'[decidedOn], MINUTE ) / 60.0
+      )
+
+  - name: Approvals Overdue
+    folder: Leave
+    format: "#,0"
+    description: Steps still waiting past their due date.
+    expression: |
+      CALCULATE(
+          COUNTROWS( 'ApprovalStep' ),
+          'ApprovalStep'[statusname] = "Pending",
+          FILTER( 'ApprovalStep', 'ApprovalStep'[dueOn] < NOW() )
+      )
+
+  # --- CPE and credentials ---------------------------------------------------
+  - name: CPE Hours Completed
+    folder: Compliance
+    format: "#,0.0"
+    description: CPD/CPE hours recorded against a credential in the period.
+    expression: "SUM( 'EmployeeCredential'[cpdHoursCompleted] )"
+
+  - name: CPE Hours Required
+    folder: Compliance
+    format: "#,0.0"
+    description: Hours the credential's issuing body requires.
+    expression: "SUM( 'EmployeeCredential'[cpdHoursRequired] )"
+
+  - name: CPE Compliance %
+    folder: Compliance
+    format: "0.0%"
+    description: >
+      Completed over required, capped per person so someone far over target
+      cannot mask a colleague who is short.
+    expression: |
+      DIVIDE(
+          SUMX(
+              'EmployeeCredential',
+              MIN( 'EmployeeCredential'[cpdHoursCompleted], 'EmployeeCredential'[cpdHoursRequired] )
+          ),
+          [CPE Hours Required]
+      )
+
+  - name: People Short of CPE
+    folder: Compliance
+    format: "#,0"
+    description: People with at least one credential below its CPD requirement.
+    expression: |
+      CALCULATE(
+          DISTINCTCOUNT( 'EmployeeCredential'[employee] ),
+          FILTER(
+              'EmployeeCredential',
+              'EmployeeCredential'[cpdHoursRequired] > 0
+                  && 'EmployeeCredential'[cpdHoursCompleted] < 'EmployeeCredential'[cpdHoursRequired]
+          )
+      )
+
+  - name: Credentials Expiring 90 Days
+    folder: Compliance
+    format: "#,0"
+    description: >
+      Active credentials lapsing within ninety days. The practising-certificate
+      watchlist; anything here is a client-facing risk for an audit firm.
+    expression: |
+      CALCULATE(
+          COUNTROWS( 'EmployeeCredential' ),
+          'EmployeeCredential'[statusname] = "Active",
+          FILTER(
+              'EmployeeCredential',
+              'EmployeeCredential'[expiresOn] >= TODAY()
+                  && 'EmployeeCredential'[expiresOn] <= TODAY() + 90
+          )
+      )
+
+  - name: Credentials Expired
+    folder: Compliance
+    format: "#,0"
+    description: Credentials past their expiry that nobody has renewed.
+    expression: |
+      CALCULATE(
+          COUNTROWS( 'EmployeeCredential' ),
+          FILTER( 'EmployeeCredential', 'EmployeeCredential'[expiresOn] < TODAY() )
+      )
+
+  - name: Mandatory Training Overdue
+    folder: Compliance
+    format: "#,0"
+    description: Assigned mandatory courses past their due date and not completed.
+    expression: |
+      CALCULATE(
+          COUNTROWS( 'TrainingRecord' ),
+          'TrainingCourse'[isMandatory] = TRUE(),
+          'TrainingRecord'[statusname] <> "Completed",
+          FILTER( 'TrainingRecord', 'TrainingRecord'[dueDate] < TODAY() )
+      )
+
+  # --- Recruitment -----------------------------------------------------------
+  - name: Open Requisitions
+    folder: Recruitment
+    format: "#,0"
+    description: Vacancies approved and advertising.
+    expression: |
+      CALCULATE(
+          COUNTROWS( 'JobRequisition' ),
+          'JobRequisition'[statusname] IN { "Open", "Posted" }
+      )
+
+  - name: Openings
+    folder: Recruitment
+    format: "#,0"
+    description: Seats to fill, since one requisition may cover several.
+    expression: |
+      CALCULATE(
+          SUM( 'JobRequisition'[openings] ),
+          'JobRequisition'[statusname] IN { "Open", "Posted" }
+      )
+
+  - name: Applications
+    folder: Recruitment
+    format: "#,0"
+    expression: "COUNTROWS( 'JobApplication' )"
+    description: Applications received in the period.
+
+  - name: Avg Time to Hire (Days)
+    folder: Recruitment
+    format: "#,0"
+    description: Mean days from posting a requisition to closing it.
+    expression: |
+      AVERAGEX(
+          FILTER(
+              'JobRequisition',
+              NOT ISBLANK( 'JobRequisition'[postedOn] ) && NOT ISBLANK( 'JobRequisition'[closedOn] )
+          ),
+          DATEDIFF( 'JobRequisition'[postedOn], 'JobRequisition'[closedOn], DAY )
+      )
+
+  - name: Offer Acceptance %
+    folder: Recruitment
+    format: "0.0%"
+    description: Applications reaching Hired over those that reached Offer.
+    expression: |
+      VAR Offered =
+          CALCULATE( COUNTROWS( 'JobApplication' ),
+                     'JobApplication'[stagename] IN { "Offer", "Hired", "Offer Declined" } )
+      VAR Hired =
+          CALCULATE( COUNTROWS( 'JobApplication' ), 'JobApplication'[stagename] = "Hired" )
+      RETURN DIVIDE( Hired, Offered )
+
+  # --- Performance -----------------------------------------------------------
+  - name: Reviews Complete %
+    folder: Performance
+    format: "0.0%"
+    description: Share of the open cycle's reviews that are finished.
+    expression: |
+      DIVIDE(
+          CALCULATE( COUNTROWS( 'PerformanceReview' ),
+                     'PerformanceReview'[statusname] = "Completed" ),
+          COUNTROWS( 'PerformanceReview' )
+      )
+
+# Report pages. Each visual names its measures and the field it breaks them by.
+# The validator checks these against the measures above and the model's columns.
+pages:
+  - name: Overview
+    description: The page an HR director opens first.
+    visuals:
+      - { type: statTile, title: Headcount, measure: Headcount }
+      - { type: statTile, title: FTE, measure: FTE }
+      - { type: statTile, title: Attrition (12m), measure: Attrition % }
+      - { type: statTile, title: Avg tenure, measure: Average Tenure (Years) }
+      - { type: statTile, title: CPE compliance, measure: CPE Compliance %, status: true }
+      - { type: statTile, title: Expiring in 90 days, measure: Credentials Expiring 90 Days, status: true }
+      - type: line
+        title: Headcount over time
+        measures: [Headcount]
+        axis: Date.Year Month
+        note: One series, so no legend; the title names it.
+      - type: barHorizontal
+        title: Headcount by department
+        measures: [Headcount]
+        axis: OrgUnit.name
+        dataLabels: true
+      - type: barClustered
+        title: Starters and leavers by month
+        measures: [Starters, Leavers]
+        axis: Date.Year Month
+        note: Two series, so a legend plus direct labels on the last pair.
+      - type: barHorizontal
+        title: Headcount by office
+        measures: [Headcount]
+        axis: Office.name
+        dataLabels: true
+
+  - name: Leave
+    description: The leave process, and whether approvals are keeping up.
+    visuals:
+      - { type: statTile, title: Liability (days), measure: Leave Liability (Days) }
+      - { type: statTile, title: Pending, measure: Leave Requests Pending }
+      - { type: statTile, title: Avg approval hours, measure: Avg Leave Approval Hours }
+      - { type: statTile, title: Overdue approvals, measure: Approvals Overdue, status: true }
+      - type: barHorizontal
+        title: Days taken by leave type
+        measures: [Leave Days Taken]
+        axis: LeaveType.name
+        dataLabels: true
+      - type: line
+        title: Average approval hours by month
+        measures: [Avg Leave Approval Hours]
+        axis: Date.Year Month
+      - type: barHorizontal
+        title: Utilisation by department
+        measures: [Leave Utilisation %]
+        axis: OrgUnit.name
+        dataLabels: true
+      - type: table
+        title: Pending requests
+        columns: [LeaveRequest.name, Employee.displayName, LeaveType.name,
+                  LeaveRequest.startDate, LeaveRequest.endDate, LeaveRequest.duration]
+        note: The table view that discharges the contrast relief rule for this page.
+
+  - name: Compliance
+    description: CPE and credentials — the page that keeps the firm licensed.
+    visuals:
+      - { type: statTile, title: CPE compliance, measure: CPE Compliance %, status: true }
+      - { type: statTile, title: People short, measure: People Short of CPE, status: true }
+      - { type: statTile, title: Expired, measure: Credentials Expired, status: true }
+      - { type: statTile, title: Training overdue, measure: Mandatory Training Overdue, status: true }
+      - type: barClustered
+        title: CPE hours completed against required
+        measures: [CPE Hours Completed, CPE Hours Required]
+        axis: CredentialType.name
+        note: >
+          Two measures on one axis and one scale — both are hours, so this is a
+          comparison, not a dual axis.
+      - type: barHorizontal
+        title: People short of CPE by department
+        measures: [People Short of CPE]
+        axis: OrgUnit.name
+        dataLabels: true
+      - type: table
+        title: Credential watchlist
+        columns: [Employee.displayName, CredentialType.name, EmployeeCredential.expiresOn,
+                  EmployeeCredential.statusname, EmployeeCredential.cpdHoursCompleted,
+                  EmployeeCredential.cpdHoursRequired]
+        note: Sorted by expiry ascending; the operational list HR works from.
+
+  - name: Recruitment
+    description: The pipeline, for the hiring managers' monthly review.
+    visuals:
+      - { type: statTile, title: Open requisitions, measure: Open Requisitions }
+      - { type: statTile, title: Openings, measure: Openings }
+      - { type: statTile, title: Avg time to hire, measure: Avg Time to Hire (Days) }
+      - { type: statTile, title: Offer acceptance, measure: Offer Acceptance % }
+      - type: funnel
+        title: Pipeline by stage
+        measures: [Applications]
+        axis: JobApplication.stagename
+        note: Ordered stages, so an ordinal ramp, not categorical hues.
+      - type: line
+        title: Time to hire by month
+        measures: [Avg Time to Hire (Days)]
+        axis: Date.Year Month
+      - type: barHorizontal
+        title: Open requisitions by department
+        measures: [Open Requisitions]
+        axis: OrgUnit.name
+        dataLabels: true
