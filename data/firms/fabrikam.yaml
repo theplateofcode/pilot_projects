@@ -15,7 +15,9 @@ firm:
   code: FAB
   country: GB
   currency: GBP
-  domain: fabrikamlegal.co.uk
+  # RFC 2606 reserves .example for documentation, so this domain can never
+  # resolve and the demo's addresses can never reach a real inbox.
+  domain: fabrikamlegal.example
   registrationNumber: OC392014
   fiscalYearStartMonth: 5
   timeZone: Europe/London

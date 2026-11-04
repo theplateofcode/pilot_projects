@@ -15,7 +15,9 @@ firm:
   code: CTS
   country: US
   currency: USD
-  domain: contoso.com
+  # RFC 2606 reserves .example for documentation, so this domain can never
+  # resolve and the demo's addresses can never reach a real inbox.
+  domain: contoso.example
   registrationNumber: DE-5581207
   fiscalYearStartMonth: 1
   timeZone: America/New_York

@@ -370,6 +370,34 @@ class TestEveryFirmGenerates(unittest.TestCase):
             seeded = {r["code"] for r in firm.rows.get("CredentialType", [])}
             self.assertEqual(seeded, {c["code"] for c in config.credentials}, slug)
 
+    def test_every_email_domain_is_reserved_for_documentation(self):
+        """A thousand demo addresses must not point at a domain someone owns.
+
+        RFC 2606 reserves example.com and the .example, .test and .invalid
+        top-level domains for exactly this. An invented .co.uk may belong to a
+        real company, and if anyone ever sends from this data it reaches them.
+        """
+        reserved_tlds = (".example", ".test", ".invalid")
+        for slug, profile in self.CASES:
+            firm, _ = self._build(slug, profile)
+            domains = set()
+            for rows in firm.rows.values():
+                for row in rows:
+                    for value in row.values():
+                        if isinstance(value, str) and "@" in value and "." in value:
+                            domains.add(value.rsplit("@", 1)[1].lower())
+            for domain in domains:
+                self.assertTrue(
+                    domain == "example.com" or domain.endswith(reserved_tlds),
+                    f"{slug}: {domain} is not reserved for documentation")
+
+    def test_every_firms_own_domain_is_reserved(self):
+        reserved_tlds = (".example", ".test", ".invalid")
+        for slug in self.SLUGS if hasattr(self, "SLUGS") else [c[0] for c in self.CASES]:
+            domain = demodata.load_firm(slug).firm["domain"].lower()
+            self.assertTrue(domain == "example.com" or domain.endswith(reserved_tlds),
+                            f"{slug}: {domain}")
+
     def test_the_approval_group_step_carries_a_group(self):
         """Without one the engine has nobody to ask and the run stalls."""
         for slug, profile in self.CASES:

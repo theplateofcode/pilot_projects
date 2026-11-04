@@ -14,7 +14,9 @@ firm:
   code: NWD
   country: GB
   currency: GBP
-  domain: northwindgroup.co.uk
+  # RFC 2606 reserves .example for documentation, so this domain can never
+  # resolve and the demo's addresses can never reach a real inbox.
+  domain: northwindgroup.example
   registrationNumber: 09218744
   fiscalYearStartMonth: 1
   timeZone: Europe/London

@@ -14,7 +14,9 @@ firm:
   code: WGA
   country: GB
   currency: GBP
-  domain: woodgroveadvisory.co.uk
+  # RFC 2606 reserves .example for documentation, so this domain can never
+  # resolve and the demo's addresses can never reach a real inbox.
+  domain: woodgroveadvisory.example
   registrationNumber: OC418872
   fiscalYearStartMonth: 4
   timeZone: Europe/London
