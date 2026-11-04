@@ -33,7 +33,7 @@ from typing import Any
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from dvgen import logical, split_pascal  # noqa: E402
+from dvgen import logical, native_currency_column, split_pascal  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 BUILD_DIR = ROOT / "build"
@@ -157,8 +157,11 @@ class Builder:
 
     def _table_columns(self, name: str) -> dict[str, dict[str, Any]]:
         ent = self.entities[name]
-        table_logical = self._logical_table(name)
         out: dict[str, dict[str, Any]] = {}
+        # Where the table has money, its currency lookup is the native
+        # transactioncurrencyid that the money column creates — the same rule
+        # dvgen applies, so the two cannot disagree about the column name.
+        native_currency = native_currency_column(ent["attributes"])
 
         for attr, spec in ent["attributes"].items():
             kind = spec["type"]
@@ -175,6 +178,21 @@ class Builder:
                 continue
 
             plumbing = spec.get("trait") in PLUMBING_TRAITS
+
+            if attr == native_currency and spec.get("target") == "Currency":
+                out[attr] = {
+                    "dataType": "string", "formatString": None,
+                    "sourceColumn": "transactioncurrencyid",
+                    "summarizeBy": "none", "isHidden": True,
+                    "description": "Provided by the money column as transactioncurrencyid.",
+                }
+                out[f"{attr}{LABEL_SUFFIX}"] = {
+                    "dataType": "string", "formatString": None,
+                    "sourceColumn": "transactioncurrencyidname",
+                    "summarizeBy": "none", "isHidden": False,
+                    "description": "Currency of the amounts on this row.",
+                }
+                continue
 
             if kind in ("lookup", "parent", "term"):
                 # The GUID, hidden — only relationships use it.

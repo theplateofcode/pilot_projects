@@ -88,6 +88,27 @@ class GenError(Exception):
     pass
 
 
+def native_currency_column(attributes: dict[str, Any]) -> str | None:
+    """The currency lookup Dataverse provides itself, if this table has money.
+
+    Adding a Money column makes Dataverse create `transactioncurrencyid` and a
+    `_base` shadow column. The schema's own `currency` lookup on such a table is
+    that same relationship, so creating a second lookup to transactioncurrency
+    would leave the money column reading the wrong one.
+
+    Shared with pbigen so the Dataverse build and the Power BI model cannot
+    disagree about which physical column holds the currency.
+    """
+    money_fields = [a for a, s in attributes.items() if s["type"] == "money"]
+    if not money_fields:
+        return None
+    named = {s.get("currencyField") for s in attributes.values()
+             if s["type"] == "money" and s.get("currencyField")}
+    if named:
+        return sorted(named)[0]
+    return "currency" if "currency" in attributes else None
+
+
 # --- naming ------------------------------------------------------------------
 def logical(prefix: str, name: str) -> str:
     """camelCase or PascalCase -> prefix_lowercasename (Dataverse logical name)."""
@@ -184,22 +205,7 @@ class Generator:
 
     # -- money
     def _native_currency_column(self, entity: str) -> str | None:
-        """The currency lookup Dataverse provides itself, if this table has money.
-
-        Adding a Money column makes Dataverse create `transactioncurrencyid` and
-        a `_base` shadow column. The schema's own `currency` lookup on such a
-        table is that same relationship, so creating a second lookup to
-        transactioncurrency would leave the money column reading the wrong one.
-        """
-        ent = self.entities[entity]
-        money_fields = [a for a, s in ent["attributes"].items() if s["type"] == "money"]
-        if not money_fields:
-            return None
-        named = {s.get("currencyField") for s in ent["attributes"].values()
-                 if s["type"] == "money" and s.get("currencyField")}
-        if named:
-            return sorted(named)[0]
-        return "currency" if "currency" in ent["attributes"] else None
+        return native_currency_column(self.entities[entity]["attributes"])
 
     # -- skipping rules
     @staticmethod
