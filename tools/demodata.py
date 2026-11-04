@@ -27,7 +27,7 @@ Every row is checked against the model before it is written:
 Usage
     python tools/demodata.py --profile hr-starter
     python tools/demodata.py --profile hr-starter --people 80 --seed 7
-    python tools/demodata.py --profile accounting-firm --out build/demo/woodgrove
+    python tools/demodata.py --profile law-firm --firm fabrikam
 """
 from __future__ import annotations
 
@@ -1324,7 +1324,10 @@ class Firm:
             })
 
         # Pitches. Each belongs to a client or prospect and a practice area.
-        pitches = max(14, self.people // 3)
+        # Roughly one per two people: a 64-lawyer firm with a dozen live pitches
+        # would be a quiet one, and the matter hand-off needs enough won pitches
+        # to be worth showing.
+        pitches = max(20, self.people // 2)
         self.opportunities: list[dict[str, Any]] = []
         for index in range(1, pitches + 1):
             account = self.random.choice(self.accounts)
@@ -1830,7 +1833,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--people", type=int, default=64, help="how many staff (default 64)")
     parser.add_argument("--seed", type=int, default=20261104, help="random seed")
     parser.add_argument("--model", help="resolved model JSON (default: build/<profile>.model.json)")
-    parser.add_argument("--out", help="output directory (default: build/demo/woodgrove)")
+    parser.add_argument("--out", help="output directory (default: build/demo/<profile>/<firm>)")
     parser.add_argument("--strict", action="store_true", help="treat warnings as failures")
     args = parser.parse_args(argv)
 
@@ -1867,7 +1870,11 @@ def main(argv: list[str] | None = None) -> int:
     errors = firm.errors + validator.errors
     warnings = firm.warnings + validator.warnings
 
-    out_dir = Path(args.out) if args.out else BUILD_DIR / "demo" / slug
+    # Per profile as well as per firm. One firm can be used by more than one
+    # profile — Fabrikam is both law-firm and law-firm-crm — and a shared folder
+    # meant the second run silently overwrote the first, which is how a stale
+    # row count ended up in the documentation.
+    out_dir = Path(args.out) if args.out else BUILD_DIR / "demo" / args.profile / slug
     if not errors:
         out_dir.mkdir(parents=True, exist_ok=True)
         for table, rows in sorted(firm.rows.items()):

@@ -4,6 +4,7 @@ This is the master plan for the pilot projects. It explains what we are building
 which stack each pilot showcases, the order to build them in and what "done" means for each one.
 
 - Phase 1, in detail → [06-phase1-core-hr.md](06-phase1-core-hr.md)
+- Phase 2, in detail → [08-phase2-crm.md](08-phase2-crm.md)
 - The generators → [07-generators.md](07-generators.md)
 - Schema rules → [03-schema-principles.md](03-schema-principles.md)
 - Stack choices → [02-tech-stack-strategy.md](02-tech-stack-strategy.md)
@@ -135,7 +136,7 @@ Effort below is a rough guide for one person working full time; scale it to your
 |---|---|---|---|
 | **0. Foundation** | 1–2 weeks | Schema v1 reviewed and tagged; publisher prefix chosen; dev tenant and Dev/Test environments; repo folders for solutions, SharePoint and apps; demo-data plan | `validate` and `docs --check` green in CI; environment access working; open decisions (§9) answered |
 | **1. Core + HR** *(in progress)* | 3–4 weeks | Core tables and approval engine in Dataverse; HR model-driven app; employee self-service canvas app (leave, profile, training); onboarding flow; HR Power BI page | Three personas (employee, manager, HR) with security roles; leave request approved end-to-end; compensation invisible to non-HR |
-| **2. CRM** | 3–4 weeks | CRM model-driven app; pipeline and proposal flow; Power Pages client portal; conflict-check process (law overlay) | Lead → opportunity → won → project hand-off works; portal user sees only their own records |
+| **2. CRM** *(built from source)* | 3–4 weeks | CRM model-driven app; pipeline and proposal flow; Power Pages client portal; conflict-check process (law overlay) | Lead → opportunity → won → project hand-off works; portal user sees only their own records |
 | **3. Work Management** | 4–6 weeks | Project/backlog/time app on the chosen stack; timesheet approval; resourcing view; status report; utilisation report | 10k+ demo time entries perform well; project created from a won opportunity |
 | **4. Travel Portal** | 2–3 weeks | SharePoint lists provisioned from template; canvas app (request, approve, expenses with receipt photo); policy checks; duty-of-care view | Trip request → approval → booking → expense claim → paid, with an out-of-policy example |
 | **5. Intranet** | 3–4 weeks | Hub + communication sites from PnP template; news, events, policy library with attestation, service desk; SPFx web parts; Viva Connections dashboard | Audience targeting works; policy attestation report; mobile-friendly |
@@ -189,7 +190,7 @@ Use Microsoft's well-known fictional brands so screenshots never show a real fir
 6. **Entity names** — review the data dictionary now; renaming a table after it is built is expensive on
    every platform.
 
-## 10. Phase 1 progress
+## 10. Progress
 
 Generated from the schema and checked in CI:
 
@@ -219,7 +220,16 @@ Generated from the schema and checked in CI:
 | The report canvas | Power BI Desktop, from the generated page spec |
 | Demo video and case study | the above, working |
 
-The full build guide is [06-phase1-core-hr.md](06-phase1-core-hr.md).
+### Phase 2 — CRM, built from source
+
+The second pilot was three declarative specs and one profile, run through the same
+generators: 55 tables, 4 security roles, 37 forms and views, 26 Power BI measures, 829
+solution components and a 514-row demo firm. What it cost in tool changes — all of them
+latent defects a second pilot was always going to surface — is in
+[08-phase2-crm.md §7](08-phase2-crm.md#7-what-the-second-pilot-actually-cost).
+
+The full build guides are [06-phase1-core-hr.md](06-phase1-core-hr.md) and
+[08-phase2-crm.md](08-phase2-crm.md).
 
 ## 11. Next ten steps
 

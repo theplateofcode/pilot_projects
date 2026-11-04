@@ -551,7 +551,7 @@ class TestTheDemoPolicies(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        demo = ROOT / "build" / "demo" / "woodgrove"
+        demo = ROOT / "build" / "demo" / "hr-starter" / "woodgrove"
         if not (demo / "ApprovalPolicy.json").exists():
             raise unittest.SkipTest("run: python tools/demodata.py --profile hr-starter")
         cls.policies_raw = json.loads((demo / "ApprovalPolicy.json").read_text())

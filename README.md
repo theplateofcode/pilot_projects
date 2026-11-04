@@ -6,10 +6,13 @@ HR** — built on one canonical, platform-neutral data model that can be deploye
 (pro-code apps), and adapted to **architecture, law, accounting, technology or any other firm** through
 overlay layers instead of copies.
 
-> **Status:** schema v1.0.0 validated. **Phase 1 (core + HR) is under way** — the Dataverse build, the
-> three security roles, the HR Power BI model and the demo firm are all generated from the schema and
-> checked in CI; what remains is a tenant to apply them to, plus the apps and flows. See the
-> [Phase 1 build guide](docs/06-phase1-core-hr.md) and the [plan and roadmap](docs/01-plan-and-roadmap.md).
+> **Status:** schema v1.0.0 validated. **Phases 1 and 2 are built from source** — HR for an accounting
+> firm and CRM for a law firm, each with its Dataverse build, security roles, model-driven app, approval
+> flows, Power BI model, SQL migrations, SharePoint template, solution package and demo firm, all
+> generated from the YAML and checked in CI. What remains for both is a tenant to apply them to, plus
+> the canvas app, the client portal and the report canvases. See the
+> [Phase 1](docs/06-phase1-core-hr.md) and [Phase 2](docs/08-phase2-crm.md) build guides, the
+> [generators](docs/07-generators.md), and the [plan and roadmap](docs/01-plan-and-roadmap.md).
 
 ## What's here
 
@@ -21,6 +24,7 @@ overlay layers instead of copies.
 | [**Schema format**](docs/04-schema-format.md) | How to read and write the YAML; what the validator checks |
 | [**Industry adaptation**](docs/05-industry-adaptation.md) | Same concept, different words; what each overlay adds; client adaptation playbook |
 | [**Phase 1 build guide**](docs/06-phase1-core-hr.md) | Build order, security design, the approval engine, the leave walkthrough, the dashboard, demo data |
+| [**Phase 2 build guide**](docs/08-phase2-crm.md) | CRM for a law firm: intake, conflicts, pipeline, the portal role, and what a second pilot actually cost |
 | [**The generators**](docs/07-generators.md) | What each of the nine tools takes, produces and checks; what the checks have caught; what is still done by hand |
 | [**Data dictionary**](docs/data-dictionary/README.md) | Every table and column with Dataverse / SharePoint / SQL mappings and ER diagrams (generated) |
 
@@ -115,6 +119,12 @@ Everything, in one command:
 
 ```bash
 python tools/build.py --profile hr-starter --prefix wga --solution WoodgroveHR
+```
+
+Phase 2 is the same command with a different profile and specs:
+
+```bash
+python tools/build.py --profile law-firm-crm --prefix fab --solution FabrikamCRM --firm fabrikam
 ```
 
 `--targets schema,dataverse,sql,sharepoint,powerbi,demo` picks a subset, and
