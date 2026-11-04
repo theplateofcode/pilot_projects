@@ -1,0 +1,266 @@
+# Phase 1 security roles — core + HR.
+#
+# Three personas, least privilege. Anything a role does not list, it cannot see:
+# tools/secgen.py defaults every unlisted table to no access and reports which
+# tables no role can reach, so a gap is visible rather than silent.
+#
+# Generate the Dataverse payloads and the matrix with:
+#   python tools/secgen.py --profile hr-starter --prefix wga
+#
+# depth is the Dataverse privilege depth:
+#   user         Basic  — rows the user owns, or that are shared with them
+#   businessUnit Local  — rows owned by their business unit
+#   parentChild  Deep   — their business unit and the ones beneath it
+#   organization Global — every row in the environment
+#
+# A table whose ownership is "organization" has no user-level rows, so Dataverse
+# ignores anything below Global on it; secgen raises the depth and says so.
+
+meta:
+  profile: hr-starter
+  prefix: wga
+  businessUnitStrategy: >
+    One root business unit for the firm, one child per legal entity. HR
+    generalists sit in the root so parentChild depth reaches every entity;
+    managers sit with their own legal entity.
+
+# Standard Dataverse tables that Phase 1 does not own. They are listed so the
+# generator does not report them as gaps: each is either covered by Dataverse's
+# own privileges or belongs to a later phase.
+outOfScope:
+  - table: Account
+    why: >
+      CRM master data, owned by Phase 2. Its taxNumber column is classified
+      confidential and gets a column profile when the CRM roles are written.
+  - table: Contact
+    why: >
+      CRM master data, owned by Phase 2. Its PII columns get a column profile
+      with the CRM roles; HR reaches people through Employee, not Contact.
+  - table: Currency
+    why: >
+      The standard transactioncurrency table. Read access comes with the basic
+      Dataverse user privileges, so no role needs to grant it.
+
+# Column security profiles, for columns classified more strictly than their
+# table. dvgen marks exactly these columns IsSecured.
+columnProfiles:
+  - name: HR Sensitive Columns
+    description: Pay ranges, credential numbers and personal mobile numbers.
+    columns:
+      - Employee.mobilePhone
+      - EmployeeCredential.credentialNumber
+      - JobRequisition.salaryMin
+      - JobRequisition.salaryMax
+    readFor: [hrAdmin]
+    writeFor: [hrAdmin]
+    # Managers may read a direct report's mobile number but not pay ranges.
+    readAlso:
+      manager: [Employee.mobilePhone]
+
+roles:
+  # ---------------------------------------------------------------------------
+  - code: employee
+    name: HR – Employee Self-Service
+    description: >
+      Every member of staff. Sees the people directory and the firm's reference
+      data, manages their own leave, training, skills and onboarding tasks, and
+      can read their own HR record. Cannot see anyone else's HR data.
+    appliesTo: All staff, assigned through an Entra group.
+    rules:
+      # The shared directory and reference data everyone needs.
+      - tables: [Employee, OrgUnit, CostCenter, Office, LegalEntity, Country,
+                 Language, HolidayCalendar, Holiday, TermSet, Term]
+        privileges: [read]
+        depth: organization
+        why: The people directory and shared reference data are firm-wide.
+
+      - tables: [LeaveType, LeavePolicy, PerformanceRating, JobFamily, JobProfile,
+                 Position, Skill, CredentialType, TrainingCourse, ReviewCycle,
+                 ChecklistTemplate, ChecklistTemplateTask]
+        privileges: [read]
+        depth: organization
+        why: HR reference data must be readable to fill in a form or book a course.
+
+      # Their own records. Dataverse resolves "mine" by owner, so these tables
+      # are user-owned and rows are owned by the employee they belong to.
+      - tables: [LeaveRequest]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: user
+        why: >
+          Raise, edit and withdraw their own leave. Write is needed only while the
+          request is a draft; the flow locks it on submission.
+
+      - tables: [LeaveBalance, JobAssignment, Employment, EmployeeCredential,
+                 TrainingRecord, EmployeeSkill, Goal]
+        privileges: [read]
+        depth: user
+        why: Read their own balance, job history, credentials, training and goals.
+
+      - tables: [EmployeeCredential, EmployeeSkill, TrainingRecord]
+        privileges: [create, write]
+        depth: user
+        why: Keep their own CPD, skills and course bookings up to date.
+
+      - tables: [EmployeePersonalDetails, EmergencyContact]
+        privileges: [read, write]
+        depth: user
+        why: >
+          Maintain their own personal details and emergency contacts. Restricted
+          tables, but only ever their own row — nobody else's is reachable at
+          user depth.
+
+      - tables: [EmployeeChecklist, EmployeeChecklistTask]
+        privileges: [read, write]
+        depth: user
+        why: Work through their own onboarding or offboarding tasks.
+
+      - tables: [PerformanceReview]
+        privileges: [read, write]
+        depth: user
+        why: >
+          Read their own review and write their self-assessment. The reviewer's
+          and calibration sections are locked by the business process flow, not
+          by this role.
+
+      - tables: [Compensation]
+        privileges: [read]
+        depth: user
+        why: >
+          See their own salary history and nothing else. Pay for anyone else is
+          unreachable: the table is user-owned and this is Basic depth.
+
+      # The shared services every pilot reuses.
+      - tables: [ApprovalRequest, ApprovalStep]
+        privileges: [read]
+        depth: user
+        why: Track an approval they raised or that is assigned to them.
+
+      - tables: [DocumentReference, Comment]
+        privileges: [create, read, write, delete]
+        depth: user
+        why: Attach a sick note or comment on their own records.
+
+    denied:
+      tables: [Grade, Candidate, JobApplication, Interview, InterviewFeedback,
+               Offer, JobRequisition, ApprovalPolicy, ApprovalPolicyStep]
+      why: >
+        Pay structure, recruitment pipeline and the approval rules themselves are
+        not self-service data.
+
+  # ---------------------------------------------------------------------------
+  - code: manager
+    name: HR – People Manager
+    description: >
+      Anyone with direct reports. Everything an employee has, plus read access to
+      their team's HR records and the ability to approve their leave. Pay and
+      personal details stay closed: a manager who needs them asks HR.
+    appliesTo: Assigned alongside Employee Self-Service, not instead of it.
+    inherits: employee
+    rules:
+      - tables: [LeaveRequest, LeaveBalance, JobAssignment, EmployeeChecklist,
+                 EmployeeChecklistTask, TrainingRecord, EmployeeCredential,
+                 EmployeeSkill, Goal, PerformanceReview]
+        privileges: [read]
+        depth: businessUnit
+        why: >
+          See the team's records. Dataverse depth alone cannot express "my direct
+          reports", so the role grants business-unit depth and the model-driven
+          app's views filter to JobAssignment.manager = current user. Treat the
+          role as the floor and the views as the working scope.
+
+      - tables: [LeaveRequest]
+        privileges: [write]
+        depth: businessUnit
+        why: Record a decision and adjust dates by agreement.
+
+      - tables: [PerformanceReview, Goal]
+        privileges: [create, write]
+        depth: businessUnit
+        why: Write the manager sections of a review and set the team's goals.
+
+      - tables: [ApprovalRequest, ApprovalStep]
+        privileges: [read, write]
+        depth: businessUnit
+        why: >
+          Approve or reject a step assigned to them. The approval flow writes the
+          outcome; this makes the record visible and editable in the app too.
+
+      - tables: [JobRequisition]
+        privileges: [create, read, write]
+        depth: businessUnit
+        why: Raise and track a vacancy for their own team.
+
+      - tables: [Candidate, JobApplication, Interview]
+        privileges: [read]
+        depth: businessUnit
+        why: Follow the pipeline for a vacancy they raised.
+
+      - tables: [InterviewFeedback]
+        privileges: [create, read, write]
+        depth: user
+        why: >
+          Write their own interview feedback and read only their own, so one
+          interviewer's view cannot anchor another's.
+
+    denied:
+      tables: [Compensation, EmployeePersonalDetails, EmergencyContact, Offer, Grade]
+      why: >
+        The exit criterion for Phase 1. A manager sees no pay, no personal
+        details and no offer, for their team or anyone else. Their own rows stay
+        readable through the inherited Employee role at user depth.
+
+  # ---------------------------------------------------------------------------
+  - code: hrAdmin
+    name: HR – Administrator
+    description: >
+      HR generalists and the reward team. Full access to HR data within their
+      business unit and the ones beneath it, and ownership of the HR reference
+      data and approval policies.
+    appliesTo: A small named group, reviewed quarterly.
+    rules:
+      - tables: [Employee, Employment, JobAssignment, EmployeePersonalDetails,
+                 EmergencyContact, Compensation, LeaveRequest, LeaveBalance,
+                 EmployeeChecklist, EmployeeChecklistTask, EmployeeCredential,
+                 EmployeeSkill, TrainingRecord, PerformanceReview, Goal,
+                 Candidate, JobApplication, Interview, InterviewFeedback, Offer,
+                 JobRequisition]
+        privileges: [create, read, write, delete, append, appendTo, assign, share]
+        depth: parentChild
+        why: >
+          HR owns the employee lifecycle. parentChild rather than organization so
+          a federated firm can keep one legal entity's HR data from another by
+          placing HR teams in child business units.
+
+      - tables: [JobFamily, Grade, JobProfile, Position, LeaveType, LeavePolicy,
+                 ReviewCycle, PerformanceRating, Skill, CredentialType,
+                 TrainingCourse, ChecklistTemplate, ChecklistTemplateTask]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: organization
+        why: HR reference data is firm-wide and HR maintains it.
+
+      - tables: [OrgUnit, CostCenter, Office, LegalEntity, Country, Language,
+                 HolidayCalendar, Holiday, TermSet, Term]
+        privileges: [read]
+        depth: organization
+        why: >
+          Read the org and reference data but do not change it — org structure is
+          maintained by the finance and operations role that Phase 2 adds.
+
+      - tables: [ApprovalPolicy, ApprovalPolicyStep]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: organization
+        why: HR configures which approval chain applies to leave and pay changes.
+
+      - tables: [ApprovalRequest, ApprovalStep]
+        privileges: [create, read, write, delete, append, appendTo, assign]
+        depth: parentChild
+        why: Reassign a stuck approval and see the whole chain.
+
+      - tables: [DocumentReference, Comment]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: parentChild
+        why: Attach contracts and right-to-work evidence to an employee record.
+
+    denied:
+      tables: [AppSetting]
+      why: Environment configuration belongs to the system administrator.
