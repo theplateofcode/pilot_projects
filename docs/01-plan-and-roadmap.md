@@ -4,6 +4,7 @@ This is the master plan for the pilot projects. It explains what we are building
 which stack each pilot showcases, the order to build them in and what "done" means for each one.
 
 - Phase 1, in detail → [06-phase1-core-hr.md](06-phase1-core-hr.md)
+- The generators → [07-generators.md](07-generators.md)
 - Schema rules → [03-schema-principles.md](03-schema-principles.md)
 - Stack choices → [02-tech-stack-strategy.md](02-tech-stack-strategy.md)
 - Adapting to a client or industry → [05-industry-adaptation.md](05-industry-adaptation.md)
@@ -48,11 +49,19 @@ flowchart LR
     G3 --> A3["React / .NET / Node<br/>apps & APIs"]
 ```
 
-Solid arrows exist today. The **Dataverse generator now exists** (`tools/dvgen.py` →
-`tools/dvdeploy.py`), built during Phase 1 rather than waiting for Phase 7: doing core by hand needed a
-tenant, and generating it needed only the resolved model. The SharePoint and SQL generators are still
-Phase 7. Alongside them, `tools/secgen.py` generates security roles and `tools/pbigen.py` the Power BI
-semantic model, both from the same resolved model.
+**All three generators now exist**, built during Phase 1 rather than waiting for Phase 7: doing core by
+hand needed a tenant, and generating it needed only the resolved model.
+
+| Generator | Output |
+|---|---|
+| `tools/dvgen.py` → `tools/dvdeploy.py` | Dataverse metadata, applied idempotently |
+| `tools/sqlgen.py` | Azure SQL migrations, with choices as foreign keys and effective dating as a constraint |
+| `tools/spgen.py` | a PnP site template, plus a report of every SharePoint limit the model runs into |
+
+Alongside them: `secgen.py` (security roles), `appgen.py` (site map, forms and views),
+`flowgen.py` (the approval flows, from the engine in `approvals.py`), `pbigen.py` (the Power BI
+semantic model), `solgen.py` (one solution folder from all of the above) and `demodata.py` (five
+fictional firms). Each is described in [07-generators.md](07-generators.md).
 
 The model is **layered**. Each layer only adds to the ones below it:
 
@@ -131,7 +140,7 @@ Effort below is a rough guide for one person working full time; scale it to your
 | **4. Travel Portal** | 2–3 weeks | SharePoint lists provisioned from template; canvas app (request, approve, expenses with receipt photo); policy checks; duty-of-care view | Trip request → approval → booking → expense claim → paid, with an out-of-policy example |
 | **5. Intranet** | 3–4 weeks | Hub + communication sites from PnP template; news, events, policy library with attestation, service desk; SPFx web parts; Viva Connections dashboard | Audience targeting works; policy attestation report; mobile-friendly |
 | **6. Industry overlays + polish** | 2–3 weeks | Apply each industry profile to at least one pilot; demo data per fictional firm; demo videos and case studies | Each profile deploys cleanly from scratch; 3–5 minute video per pilot |
-| **7. Generators & re-platforming** | ongoing | Generators from the resolved model (Dataverse, SharePoint, SQL); one pilot rebuilt on a second stack | Re-platformed pilot built without editing the canonical schema |
+| **7. Generators & re-platforming** *(generators done)* | ongoing | ~~Generators from the resolved model (Dataverse, SharePoint, SQL)~~; one pilot rebuilt on a second stack | Re-platformed pilot built without editing the canonical schema |
 
 ## 6. Definition of done for every pilot
 
@@ -191,6 +200,15 @@ Generated from the schema and checked in CI:
 | Power BI | 25-table semantic model, 27 measures, theme; every DAX reference checked against the generated columns |
 | Demo data | Woodgrove Advisory, 64 staff, ~1,800 rows, validated against the model |
 | Access checker | `tools/ppcheck.py`, which reports exactly what is missing before anything is applied |
+
+| Also done, ahead of schedule | |
+|---|---|
+| SQL generator (Phase 7) | 123 tables, 1,030 foreign keys for the full accounting profile; the DDL is executed in tests, not just inspected |
+| SharePoint generator (Phase 7) | a PnP template plus `limits.md`, which is the evidence for each stack decision |
+| The approval engine | `approvals.py`, tested across all seven approverTypes; `flowgen.py` turns it into four cloud flows |
+| HR model-driven app | site map, 48 forms and 48 views |
+| Solution packaging | 767 components in one folder, with its manifest |
+| Five fictional firms | Woodgrove, Fabrikam, Adatum, Contoso and Northwind, each dressed for its industry |
 
 | Still to do | Needs |
 |---|---|

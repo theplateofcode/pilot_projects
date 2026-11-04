@@ -21,6 +21,7 @@ overlay layers instead of copies.
 | [**Schema format**](docs/04-schema-format.md) | How to read and write the YAML; what the validator checks |
 | [**Industry adaptation**](docs/05-industry-adaptation.md) | Same concept, different words; what each overlay adds; client adaptation playbook |
 | [**Phase 1 build guide**](docs/06-phase1-core-hr.md) | Build order, security design, the approval engine, the leave walkthrough, the dashboard, demo data |
+| [**The generators**](docs/07-generators.md) | What each of the nine tools takes, produces and checks; what the checks have caught; what is still done by hand |
 | [**Data dictionary**](docs/data-dictionary/README.md) | Every table and column with Dataverse / SharePoint / SQL mappings and ER diagrams (generated) |
 
 ## The model at a glance
