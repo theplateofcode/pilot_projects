@@ -169,6 +169,9 @@ class Firm:
         self.rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
         self.errors: list[str] = []
         self.warnings: list[str] = []
+        # Notes record a deliberate choice the generator made. Warnings are
+        # things that may be wrong, so --strict fails on those and not these.
+        self.notes: list[str] = []
         self.employees: list[dict[str, Any]] = []
         self._used_emails: set[str] = set()
 
@@ -321,6 +324,21 @@ class Firm:
             }
             self.employees.append(person)
 
+        self._ensure_partners()
+
+        # The most senior active partner runs the firm. Every department head
+        # reports to them, so only one person in the firm has no manager —
+        # which is the state the approval engine is entitled to assume.
+        partners = [p for p in self.employees
+                    if p["_rung"]["grade"] == "L7" and p["_left"] is None]
+        if not partners:
+            partners = sorted((p for p in self.employees if p["_left"] is None),
+                              key=lambda p: LADDER.index(p["_rung"]), reverse=True)[:1]
+        self.managing_partner = partners[0]["employeeNumber"] if partners else None
+        for unit in self.rows["OrgUnit"]:
+            if unit["code"] == "FIRM":
+                unit["head"] = self.managing_partner
+
         # Each department's most senior active person becomes its head.
         for dept in DEPARTMENTS:
             members = [p for p in self.employees
@@ -337,12 +355,52 @@ class Firm:
             dept["_head"] = head["employeeNumber"]
 
         for person in self.employees:
+            # workerType follows the rung, which _ensure_partners may have raised.
+            person["workerType"] = ("partner" if person["_rung"]["grade"] == LADDER[-1]["grade"]
+                                    else "employee")
             self.add("Employee", {
                 k: v for k, v in person.items() if not k.startswith("_")
             })
 
+    def _ensure_partners(self) -> None:
+        """A firm this size has partners, whatever the random draw says.
+
+        The top rung is 3% of staff, so a 64-person firm expects two — and a
+        single draw can easily give none. A partnership with no partners is
+        wrong on its face, and it also leaves the pay-change policy's partner
+        step with an empty group, so the floor is enforced rather than hoped for.
+        """
+        wanted = max(2, self.people // 25)
+        top = LADDER[-1]
+        partners = [p for p in self.employees
+                    if p["_rung"]["grade"] == top["grade"] and p["_left"] is None]
+        if len(partners) >= wanted:
+            return
+
+        # Promote the most senior people who are still here.
+        candidates = sorted(
+            (p for p in self.employees
+             if p["_left"] is None and p["_rung"]["grade"] != top["grade"]),
+            key=lambda p: (LADDER.index(p["_rung"]), p["_joined"]),
+            reverse=True,
+        )
+        promoted = candidates[:wanted - len(partners)]
+        for person in promoted:
+            person["_rung"] = top
+            partners.append(person)
+        self.notes.append(
+            f"the random draw gave {len(partners) - len(promoted)} partner(s); "
+            f"promoted {len(promoted)} to reach the floor of {wanted} for a firm of "
+            f"{self.people}")
+
     def _manager_for(self, person: dict[str, Any]) -> str | None:
-        """Someone more senior in the same department, else the department head."""
+        """Someone more senior in the same department, else up the chain.
+
+        Order: a more senior colleague in the department, then the department
+        head, then the managing partner. Only the managing partner is left with
+        nobody, so every other person's leave has somewhere to go.
+        """
+        number = person["employeeNumber"]
         candidates = [
             p for p in self.employees
             if p["_dept"]["code"] == person["_dept"]["code"]
@@ -352,7 +410,10 @@ class Firm:
         if candidates:
             return self.random.choice(candidates)["employeeNumber"]
         head = person["_dept"].get("_head")
-        return head if head != person["employeeNumber"] else None
+        if head and head != number:
+            return head
+        managing = getattr(self, "managing_partner", None)
+        return managing if managing and managing != number else None
 
     def build_assignments(self) -> None:
         for person in self.employees:
@@ -989,6 +1050,9 @@ class Validator:
         self.rows = rows
         self.errors: list[str] = []
         self.warnings: list[str] = []
+        # Notes record a deliberate choice the generator made. Warnings are
+        # things that may be wrong, so --strict fails on those and not these.
+        self.notes: list[str] = []
         self.keys = self._natural_keys()
 
     def _natural_keys(self) -> dict[str, set[str]]:
@@ -1213,6 +1277,7 @@ def main(argv: list[str] | None = None) -> int:
             "rowCounts": {t: len(r) for t, r in sorted(firm.rows.items())},
             "totalRows": sum(len(r) for r in firm.rows.values()),
             "loadOrder": load_order(model, firm.rows),
+            "notes": firm.notes,
             "warnings": warnings,
         }, indent=2), encoding="utf-8")
 
@@ -1221,6 +1286,8 @@ def main(argv: list[str] | None = None) -> int:
               f"{sum(len(r) for r in firm.rows.values())} rows across {len(firm.rows)} tables")
         for table, rows in sorted(firm.rows.items(), key=lambda kv: -len(kv[1])):
             print(f"    {len(rows):5d}  {table}")
+        for note in firm.notes:
+            print(f"  note: {note}")
     for warning in warnings:
         print(f"  warning: {warning}")
     for error in errors[:40]:
