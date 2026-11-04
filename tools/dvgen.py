@@ -51,7 +51,7 @@ SIMPLE_TYPES = {
     "decimal", "percent", "money", "boolean", "date", "datetime", "duration",
     "autonumber", "file", "image",
 }
-RELATIONSHIP_TYPES = {"lookup", "parent", "multilookup", "term", "multiterm", "polylookup"}
+RELATIONSHIP_TYPES = {"lookup", "parent", "multilookup", "term", "multiterm"}
 
 # The six physical columns an `address` composite expands into.
 ADDRESS_PARTS = (
@@ -337,6 +337,9 @@ class Generator:
             for attr_name, spec in ent["attributes"].items():
                 if attr_name == primary or self._is_native_column(spec):
                     continue
+                if spec["type"] == "polylookup":
+                    attrs.extend(self._polylookup_columns(name, attr_name, spec))
+                    continue
                 if spec["type"] in RELATIONSHIP_TYPES:
                     continue            # created as relationships, later in the plan
                 if spec["type"] == "guid":
@@ -369,6 +372,35 @@ class Generator:
             {"entity": entity, "column": f"{attr}Country", "label": f"{base} – Country"}
         )
         return out
+
+    def _polylookup_columns(self, entity: str, attr: str,
+                            spec: dict[str, Any]) -> list[dict[str, Any]]:
+        """A multi-table reference, as the data dictionary maps it.
+
+        The dictionary's physical mapping for a polylookup is "Text x2 (table
+        name + id)" on all three platforms, so it is a pair of text columns
+        rather than a Dataverse polymorphic lookup. That is deliberate: a real
+        multi-table lookup must enumerate its targets, and these columns point
+        at any table, including ones a later pilot adds.
+        """
+        base = self._column_label(entity, attr, spec)
+        targets = spec.get("targets") or spec.get("target") or ["*"]
+        if isinstance(targets, str):
+            targets = ["*"] if targets == "*" else [t.strip() for t in targets.split("|")]
+        scope = "any table" if "*" in targets else ", ".join(targets)
+        required = bool(spec.get("required"))
+        description = spec.get("description") or f"The record this row is about ({scope})."
+        self.native_mappings.append(
+            {"entity": entity, "column": attr,
+             "mapsTo": f"{logical(self.prefix, attr + 'Table')} + "
+                       f"{logical(self.prefix, attr + 'Id')}"})
+        return [
+            self._string_payload(f"{attr}Table", f"{base} (table)",
+                                 f"Logical name of the table {description[0].lower()}"
+                                 f"{description[1:]}", 100, required),
+            self._string_payload(f"{attr}Id", f"{base} (id)",
+                                 f"Row id within that table. Scope: {scope}.", 36, required),
+        ]
 
     def _string_payload(self, attr_name: str, display: str, description: str,
                         length: int, required: bool, fmt: str = "Text") -> dict[str, Any]:
@@ -671,21 +703,6 @@ class Generator:
                     "Behavior": "UseCollectionName", "Group": "Details", "Order": 10000},
             },
         }
-
-    def _record_polylookup(self, entity: str, attr: str, spec: dict[str, Any]) -> None:
-        """Multi-table lookups cannot be created through the metadata API."""
-        targets = spec.get("targets") or spec.get("target") or "*"
-        if isinstance(targets, str):
-            targets = [t.strip() for t in targets.split("|")] if targets != "*" else ["<any table>"]
-        self.manual.append(
-            {
-                "step": "multi-table lookup",
-                "entity": entity,
-                "column": attr,
-                "detail": "create a polymorphic lookup in the maker portal, or one lookup per "
-                          f"target: {', '.join(targets)}",
-            }
-        )
 
     # -- the plan
     def build(self) -> dict[str, Any]:

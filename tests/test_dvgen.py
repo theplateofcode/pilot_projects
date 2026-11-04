@@ -320,13 +320,30 @@ class TestRelationships(unittest.TestCase):
         rels = dvgen.Generator(m, "wga").relationships()["oneToMany"]
         self.assertEqual(rels[0]["payload"]["ReferencedEntity"], "wga_term")
 
-    def test_polylookup_is_recorded_as_a_manual_step(self):
+    def test_polylookup_becomes_two_text_columns(self):
+        """The dictionary maps it to "Text x2 (table name + id)", not a lookup."""
         m = model({"T": entity(attributes=attrs(
             name={"type": "string", "required": True},
-            regarding={"type": "polylookup", "target": "*", "required": True}))})
+            regarding={"type": "polylookup", "targets": ["*"], "required": True}))})
         gen = dvgen.Generator(m, "wga")
-        gen.relationships()
-        self.assertEqual(gen.manual[0]["step"], "multi-table lookup")
+        cols = {c["LogicalName"]: c for c in gen.columns()[0]["attributes"]}
+        self.assertEqual(cols["wga_regardingtable"]["MaxLength"], 100)
+        self.assertEqual(cols["wga_regardingid"]["MaxLength"], 36)
+        self.assertEqual(cols["wga_regardingid"]["RequiredLevel"]["Value"],
+                         "ApplicationRequired")
+        self.assertEqual(gen.relationships()["oneToMany"], [])
+        self.assertEqual(gen.manual, [])
+
+    def test_polylookup_scope_is_recorded_as_a_native_mapping(self):
+        m = model({"A": entity(), "B": entity(), "T": entity(attributes=attrs(
+            name={"type": "string", "required": True},
+            regarding={"type": "polylookup", "targets": ["A", "B"]}))})
+        gen = dvgen.Generator(m, "wga")
+        cols = {c["LogicalName"]: c for c in
+                next(t for t in gen.columns() if t["_name"] == "T")["attributes"]}
+        self.assertIn("A, B", cols["wga_regardingid"]["Description"]
+                      ["LocalizedLabels"][0]["Label"])
+        self.assertTrue(any(m["column"] == "regarding" for m in gen.native_mappings))
 
     def test_lookup_to_a_non_dataverse_table_is_reported(self):
         m = model({"Gone": entity(platforms={"dataverse": "none"}),
