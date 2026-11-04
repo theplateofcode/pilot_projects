@@ -1,0 +1,140 @@
+# The HR administration app — a model-driven app over the core + HR tables.
+#
+# The site map is by lifecycle, not by table, because HR thinks in processes:
+# somebody joins, moves, is paid, takes leave, is reviewed, leaves. Grouping
+# tables alphabetically is how you get an app nobody can navigate.
+#
+# Forms and views are generated from the schema. Only the overrides below are
+# written by hand, so adding a column to the YAML puts it on the form.
+#
+#   python tools/appgen.py --profile hr-starter --prefix wga
+
+meta:
+  name: HR Administration
+  profile: hr-starter
+  prefix: wga
+  description: >
+    The HR team's app. Covers the employee lifecycle from requisition to leaver,
+    with pay and personal data behind their own security roles.
+  # Which role each area assumes, so the generator can check an area is not
+  # pointing at a table the role cannot read.
+  role: hrAdmin
+
+areas:
+  - id: people
+    name: People
+    icon: Contact
+    groups:
+      - id: directory
+        name: Directory
+        tables: [Employee, Employment, JobAssignment]
+      - id: personal
+        name: Personal data
+        tables: [EmployeePersonalDetails, EmergencyContact]
+        note: >
+          Restricted tables. They appear in the site map for HR because the
+          role grants them; a manager with this app sees the area empty.
+      - id: organisation
+        name: Organisation
+        tables: [OrgUnit, CostCenter, Office, LegalEntity]
+
+  - id: reward
+    name: Reward
+    icon: Money
+    groups:
+      - id: pay
+        name: Pay
+        tables: [Compensation, Grade]
+        note: The exit criterion — only the HR and reward roles reach this area.
+
+  - id: absence
+    name: Absence
+    icon: Calendar
+    groups:
+      - id: requests
+        name: Requests
+        tables: [LeaveRequest, LeaveBalance]
+      - id: absencesetup
+        name: Setup
+        tables: [LeaveType, LeavePolicy, HolidayCalendar, Holiday]
+
+  - id: hiring
+    name: Hiring
+    icon: Search
+    groups:
+      - id: pipeline
+        name: Pipeline
+        tables: [JobRequisition, Candidate, JobApplication, Interview, InterviewFeedback]
+      - id: offers
+        name: Offers
+        tables: [Offer]
+
+  - id: development
+    name: Development
+    icon: Lightbulb
+    groups:
+      - id: performance
+        name: Performance
+        tables: [ReviewCycle, PerformanceReview, Goal]
+      - id: learning
+        name: Learning
+        tables: [TrainingCourse, TrainingRecord, EmployeeSkill, Skill]
+
+  - id: compliance
+    name: Compliance
+    icon: Shield
+    groups:
+      - id: credentials
+        name: Credentials
+        tables: [EmployeeCredential, CredentialType]
+        note: >
+          First in the area, because for an audit firm a lapsed practising
+          certificate is a client-facing risk.
+
+  - id: setup
+    name: Setup
+    icon: Settings
+    groups:
+      - id: architecture
+        name: Job architecture
+        tables: [JobFamily, JobProfile, Position]
+      - id: checklists
+        name: Checklists
+        tables: [ChecklistTemplate, ChecklistTemplateTask, EmployeeChecklist,
+                 EmployeeChecklistTask]
+      - id: approvals
+        name: Approvals
+        tables: [ApprovalPolicy, ApprovalPolicyStep, ApprovalRequest, ApprovalStep]
+      - id: reference
+        name: Reference data
+        tables: [PerformanceRating, Country, Language, TermSet, Term]
+
+# Per-table overrides. Anything not named here is generated from the schema.
+forms:
+  LeaveRequest:
+    # The order a leave request is actually filled in.
+    order: [employee, leaveType, startDate, endDate, startsHalfDay, endsHalfDay,
+            duration, reason, coverBy, supportingDocument, status]
+    readOnlyAfterSubmit: [employee, leaveType, startDate, endDate, duration]
+  PerformanceReview:
+    order: [cycle, employee, reviewer, status, selfAssessment, selfRating,
+            managerAssessment, managerRating, finalRating, promotionRecommended]
+    note: >
+      The business process flow locks the self-assessment once the manager's
+      section opens; the role grants write, so the stage gate does that work.
+  Compensation:
+    order: [employee, validFrom, validTo, basis, amount, currency, grade,
+            changeReason, changePercent, compaRatio, notes]
+
+views:
+  LeaveRequest:
+    columns: [name, employee, leaveType, startDate, endDate, duration, status]
+    sort: [[startDate, desc]]
+  EmployeeCredential:
+    columns: [employee, credentialType, expiresOn, status, cpdHoursCompleted,
+              cpdHoursRequired]
+    sort: [[expiresOn, asc]]
+    note: Expiring soonest first — the list HR works from.
+  Employee:
+    columns: [displayName, workEmail, orgUnit, office, employmentStatus]
+    sort: [[displayName, asc]]

@@ -16,9 +16,12 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
+import appgen  # noqa: E402
 import dvgen  # noqa: E402
+import flowgen  # noqa: E402
 import pbigen  # noqa: E402
 import secgen  # noqa: E402
+import sqlgen  # noqa: E402
 
 PREFIX = "wga"
 MODEL_FILE = ROOT / "build" / "hr-starter.model.json"
@@ -58,6 +61,14 @@ class CrossToolTests(unittest.TestCase):
         cls.sec = secgen.RoleSet(
             yaml.safe_load((ROOT / "security" / "phase1-roles.yaml").read_text(encoding="utf-8")),
             cls.model, PREFIX)
+
+        cls.app = appgen.Generator(
+            yaml.safe_load((ROOT / "apps" / "hr-admin.yaml").read_text(encoding="utf-8")),
+            cls.model, PREFIX, cls.sec.roles)
+        cls.app_plan = cls.app.build()
+
+        cls.flows = flowgen.Generator(cls.model, PREFIX, "WoodgroveHR").build()
+        cls.sql = sqlgen.Generator(cls.model).build()
 
         # Every physical column dvgen will have created, per entity.
         created: dict[str, set[str]] = {}
@@ -184,6 +195,86 @@ class CrossToolTests(unittest.TestCase):
                                  f"{role} can reach {table}")
             self.assertIn(table, self.sec.roles["hrAdmin"]["effectiveGrants"], table)
 
+    # -- dvgen <-> appgen
+    def test_every_form_control_binds_to_a_column_that_will_exist(self):
+        unknown = []
+        for table, xml in self.app_plan["forms"].items():
+            import xml.etree.ElementTree as ElementTree
+            for control in ElementTree.fromstring(xml).iter("control"):
+                name = control.get("datafieldname")
+                if native(name) or name in self.created.get(table, set()):
+                    continue
+                unknown.append(f"{table}: {name}")
+        self.assertEqual(sorted(set(unknown)), [])
+
+    def test_the_app_only_shows_tables_the_role_can_read(self):
+        role = self.app.meta.get("role")
+        grants = self.sec.roles[role]["effectiveGrants"]
+        for table in self.app.tables:
+            self.assertIn(table, grants, f"{role} cannot read {table}")
+
+    def test_the_app_places_no_table_the_build_will_not_create(self):
+        for table in self.app.tables:
+            mode = (self.model["entities"][table].get("platforms", {}) or {}) \
+                .get("dataverse", "custom")
+            if isinstance(mode, str) and mode.startswith("standard:"):
+                continue
+            self.assertIn(table, self.table_logical, table)
+
+    # -- the currency rule, across every generator
+    def test_all_four_generators_agree_on_the_currency_column(self):
+        """It diverged once between dvgen and pbigen; now it is one function."""
+        import xml.etree.ElementTree as ElementTree
+        for table in sorted(self.table_logical):
+            attributes = self.model["entities"][table]["attributes"]
+            currency = dvgen.native_currency_column(attributes)
+            if currency is None or attributes[currency].get("target") != "Currency":
+                continue
+            logical_currency = dvgen.logical(PREFIX, currency)
+
+            # dvgen: no second lookup to transactioncurrency.
+            self.assertFalse(
+                [r for r in self.plan["relationships"]["oneToMany"]
+                 if r["_entity"] == table and r["_column"] == currency],
+                f"dvgen creates {table}.{currency}")
+
+            # pbigen: reads the native column.
+            if table in self.pbi.columns:
+                self.assertEqual(
+                    self.pbi.columns[table][currency]["sourceColumn"],
+                    "transactioncurrencyid", f"pbigen {table}")
+
+            # appgen: binds to the native column, never the custom one.
+            if table in self.app_plan["forms"]:
+                placed = {c.get("datafieldname") for c in
+                          ElementTree.fromstring(self.app_plan["forms"][table])
+                          .iter("control")}
+                self.assertNotIn(logical_currency, placed, f"appgen {table}")
+
+            # sqlgen keeps its own currencyId column with a real foreign key,
+            # because SQL has no implicit currency behaviour to collide with.
+            self.assertIn(f"[{currency}Id]", self.sql["files"]["003_tables.sql"],
+                          f"sqlgen {table}")
+
+    # -- dvgen <-> flowgen
+    def test_every_flow_column_will_exist(self):
+        import re as regex
+        known = set(NATIVE_COLUMNS)
+        for columns in self.created.values():
+            known |= columns
+        known |= set(self.table_logical.values())
+        known |= {flowgen.plural(PREFIX, t) for t in self.table_logical}
+        unknown = []
+        pattern = regex.compile(rf"\b{PREFIX}_[a-z0-9]+\b")
+        for flow in self.flows["flows"]:
+            for token in set(pattern.findall(json.dumps(flow))):
+                if token in known or token.endswith("sharedcommondataserviceforapps"):
+                    continue
+                if token.endswith("id") and token[:-2] in self.table_logical.values():
+                    continue
+                unknown.append(f"{flow['_name']}: {token}")
+        self.assertEqual(sorted(set(unknown)), [])
+
     # -- the deployment plan
     def test_the_plan_creates_option_sets_before_the_columns_that_bind_to_them(self):
         available = {o["_logicalName"] for o in self.plan["optionSets"]}
@@ -217,6 +308,22 @@ class CrossToolTests(unittest.TestCase):
     def test_the_plan_has_no_manual_steps_and_no_warnings(self):
         self.assertEqual(self.plan["manualSteps"], [])
         self.assertEqual(self.plan["warnings"], [])
+
+    def test_every_generator_runs_clean_on_the_phase_1_profile(self):
+        """One place to notice that something started warning."""
+        reports = {
+            # dvgen has no separate errors list: anything wrong is a warning,
+            # which is why --strict matters for it.
+            "dvgen": ([], self.plan["warnings"]),
+            "pbigen": (self.pbi.errors, self.pbi.warnings),
+            "appgen": (self.app_plan["errors"], self.app_plan["warnings"]),
+            "flowgen": (self.flows["errors"], self.flows["warnings"]),
+            "sqlgen": (self.sql["errors"], self.sql["warnings"]),
+            "secgen": (self.sec.errors, self.sec.warnings),
+        }
+        for name, (errors, warnings) in reports.items():
+            self.assertEqual(errors, [], name)
+            self.assertEqual(warnings, [], name)
 
 
 if __name__ == "__main__":

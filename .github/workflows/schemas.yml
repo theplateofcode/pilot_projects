@@ -51,6 +51,9 @@ jobs:
       - name: Generate demo data
         run: python tools/demodata.py --profile hr-starter --people 64 --strict
 
+      - name: Generate the HR model-driven app
+        run: python tools/appgen.py --profile hr-starter --prefix wga --strict
+
       - name: Generate the approval flows
         run: python tools/flowgen.py --profile hr-starter --prefix wga --solution WoodgroveHR --strict
 
