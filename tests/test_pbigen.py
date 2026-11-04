@@ -126,11 +126,21 @@ class TestTypeMapping(unittest.TestCase):
                        "physical": {"dataverse": "Date only"}})
         self.assertFalse(cols["validFrom"]["isHidden"])
 
-    def test_unsupported_types_are_skipped_with_a_warning(self):
-        cols, b = self._columns(photo=attr("image"), regarding=attr("polylookup"))
+    def test_known_unsupported_types_are_noted_not_warned(self):
+        """--strict must stay usable, but the omission has to be visible."""
+        cols, b = self._columns(photo=attr("image"), home=attr("address"))
         self.assertNotIn("photo", cols)
-        self.assertNotIn("regarding", cols)
-        self.assertTrue(any("polylookup" in w for w in b.warnings))
+        self.assertNotIn("home", cols)
+        self.assertEqual(b.warnings, [])
+        self.assertTrue(any("photo (image) is not loaded" in n for n in b.notes))
+        self.assertTrue(any("home (address) is not loaded" in n for n in b.notes))
+
+    def test_polylookup_reads_the_two_text_columns_dvgen_creates(self):
+        cols, b = self._columns(regarding=attr("polylookup", targets=["*"]))
+        self.assertEqual(cols["regardingTable"]["sourceColumn"], "wga_regardingtable")
+        self.assertEqual(cols["regardingId"]["sourceColumn"], "wga_regardingid")
+        self.assertTrue(cols["regardingId"]["isHidden"])
+        self.assertEqual(b.warnings, [])
 
     def test_standard_table_reads_from_its_own_name(self):
         m = model({"Account": entity(dict(BASE), dataverse="standard:account")})
@@ -306,6 +316,28 @@ class TestPageValidation(unittest.TestCase):
                       "measures": ["Count", "Rate"], "axis": "OrgUnit.name"}]}]),
             self.MODEL, "wga")
         self.assertTrue(any("two scales on one chart" in w for w in b.warnings))
+
+    def test_more_than_three_series_warns(self):
+        b = pbigen.Builder(
+            spec(tables=["Employee", "OrgUnit"],
+                 measures=[{"name": n, "expression": "1", "format": "#,0"}
+                           for n in ("A", "B", "C", "D")],
+                 pages=[{"name": "P", "visuals": [
+                     {"type": "barClustered", "title": "Four",
+                      "measures": ["A", "B", "C", "D"], "axis": "OrgUnit.name"}]}]),
+            self.MODEL, "wga")
+        self.assertTrue(any("only the first 3 theme slots" in w for w in b.warnings))
+
+    def test_exactly_three_series_does_not_warn(self):
+        b = pbigen.Builder(
+            spec(tables=["Employee", "OrgUnit"],
+                 measures=[{"name": n, "expression": "1", "format": "#,0"}
+                           for n in ("A", "B", "C")],
+                 pages=[{"name": "P", "visuals": [
+                     {"type": "barClustered", "title": "Three",
+                      "measures": ["A", "B", "C"], "axis": "OrgUnit.name"}]}]),
+            self.MODEL, "wga")
+        self.assertFalse(any("theme slots" in w for w in b.warnings))
 
     def test_two_measures_of_the_same_format_do_not_warn(self):
         b = pbigen.Builder(

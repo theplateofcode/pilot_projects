@@ -58,8 +58,21 @@ TYPE_MAP: dict[str, tuple[str, str | None, str]] = {
     "date": ("dateTime", "Short Date", "none"),
     "datetime": ("dateTime", "General Date", "none"),
 }
-# Types with no useful representation over the TDS endpoint.
-SKIP_TYPES = {"file", "image", "address", "multilookup", "multiterm", "multichoice"}
+# Types with no useful representation over the TDS endpoint, and why.
+SKIP_REASONS = {
+    "file": "binary content, not a reportable value",
+    "image": "binary content, not a reportable value",
+    "address": "a composite; load the parts individually if a report needs them",
+    "multilookup": "a many-to-many intersect table, which the TDS endpoint does not expose",
+    "multiterm": "as multilookup",
+    "multichoice": "a delimited value the TDS endpoint does not split",
+}
+SKIP_TYPES = set(SKIP_REASONS)
+
+# The theme's first three categorical slots are the ones that pass every
+# colour-vision and contrast gate under all-pairs comparison. A fourth puts
+# yellow beside orange, which does not.
+MAX_SERIES = 3
 
 # Trait columns that are pure plumbing: hidden from the field list, though a
 # measure may still reference them. integration, classified and effectiveDated
@@ -150,6 +163,11 @@ class Builder:
         for attr, spec in ent["attributes"].items():
             kind = spec["type"]
             if kind in SKIP_TYPES:
+                # Known to have no useful shape over the TDS endpoint. Recorded
+                # rather than warned, so --strict stays usable, but the omission
+                # is in model-report.json where someone can see it.
+                self.notes.append(
+                    f"{name}.{attr} ({kind}) is not loaded: {SKIP_REASONS[kind]}")
                 continue
 
             source = self._source_column(name, attr, spec)
@@ -173,6 +191,19 @@ class Builder:
                     "summarizeBy": "none", "isHidden": plumbing,
                     "description": f"Display name of {split_pascal(attr).lower()}.",
                 }
+                continue
+
+            if kind == "polylookup":
+                # dvgen builds these as two text columns, so that is what the
+                # TDS endpoint serves. Hidden: a report filters on the record's
+                # own table, not on a stringly-typed reference to it.
+                for part, label_suffix, length in (("Table", "table", 100), ("Id", "id", 36)):
+                    out[f"{attr}{part}"] = {
+                        "dataType": "string", "formatString": None,
+                        "sourceColumn": logical(self.prefix, f"{attr}{part}"),
+                        "summarizeBy": "none", "isHidden": True,
+                        "description": f"The {label_suffix} of the record this row is about.",
+                    }
                 continue
 
             if kind == "choice":
@@ -417,6 +448,12 @@ class Builder:
                 for field in ([visual["axis"]] if visual.get("axis") else []) + \
                              list(visual.get("columns") or []):
                     self._check_field(where, field)
+                series = len(visual.get("measures") or [])
+                if series > MAX_SERIES:
+                    self.warnings.append(
+                        f"{where}: {series} series, but only the first {MAX_SERIES} theme "
+                        "slots pass the colour-vision and contrast gates under all-pairs "
+                        "comparison — fold the rest into 'Other' or use small multiples")
                 if visual.get("type") == "barClustered" and len(visual.get("measures") or []) > 1:
                     formats = {next((m["formatString"] for m in self.measures
                                      if m["name"] == n), None)
@@ -787,7 +824,12 @@ def page_spec(builder: Builder, spec: dict[str, Any]) -> str:
         "  identity is never colour alone.",
         "- Categorical colour comes from theme slots 1–3 in fixed order, never cycled.",
         "- Ordered things (pipeline stages) use the sequential blue ramp, not hues.",
-        "- Each page with a below-contrast series also carries a table view.",
+        "- No visual carries more than three series. Slots 1–3 are the ones that pass",
+        "  every colour-vision and contrast gate under all-pairs comparison; a fourth",
+        "  would put yellow next to orange, which fails them. Past three, fold the rest",
+        "  into \"Other\" or use small multiples.",
+        "- Where a page is operational rather than a summary, it also carries a table",
+        "  view, so a value can be read exactly and not just compared.",
         "",
     ]
     for page in spec.get("pages") or []:
@@ -865,8 +907,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {sum(len(p['visuals']) for p in spec.get('pages') or [])} visuals across "
               f"{len(spec.get('pages') or [])} pages")
     if builder.notes:
-        print(f"  {len(builder.notes)} inactive role-playing relationship(s) "
-              "— see model-report.json")
+        inactive = len([n for n in builder.notes if "USERELATIONSHIP" in n])
+        skipped = len(builder.notes) - inactive
+        if inactive:
+            print(f"  {inactive} inactive role-playing relationship(s) — see model-report.json")
+        if skipped:
+            print(f"  {skipped} column(s) not loaded by design — see model-report.json")
     for warning in builder.warnings:
         print(f"  warning: {warning}")
     for error in builder.errors:

@@ -46,7 +46,7 @@ jobs:
         run: python tools/secgen.py --profile hr-starter --prefix wga --strict
 
       - name: Generate the Power BI model
-        run: python tools/pbigen.py --profile hr-starter --prefix wga
+        run: python tools/pbigen.py --profile hr-starter --prefix wga --strict
 
       - name: Generate demo data
         run: python tools/demodata.py --profile hr-starter --people 64 --strict
