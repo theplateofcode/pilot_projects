@@ -32,26 +32,44 @@ jobs:
             python tools/schematool.py export --profile "$profile"
           done
 
-      # The generators are the contract between the schema and the build.
-      # --strict means a warning fails CI, so drift cannot land quietly.
-      - name: Generate the Dataverse plan
-        run: |
-          python tools/dvgen.py --profile hr-starter --prefix wga --layers core,hr \
-            --solution WoodgroveHR
+      # The generators are the contract between the schema and the build: a
+      # column renamed in the YAML fails the step that touches it, rather than a
+      # Dataverse import or a Power BI refresh weeks later.
+      #
+      # The whole Phase 1 pipeline in one command, in a correct order, with
+      # --strict wherever a warning should fail the build.
+      - name: Build Phase 1
+        run: python tools/build.py --profile hr-starter --prefix wga --solution WoodgroveHR
 
-      - name: Check the plan applies
+      - name: Check the Dataverse plan applies
         run: python tools/dvdeploy.py --plan build/dataverse/hr-starter --dry-run
 
-      - name: Generate security roles
-        run: python tools/secgen.py --profile hr-starter --prefix wga --strict
+      # The approval engine serves every pilot, not only HR, so every starter
+      # profile is built. secgen, appgen and pbigen are skipped where their spec
+      # declares another profile, which build.py reports.
+      - name: Build every other starter profile
+        run: |
+          for profile in travel-starter work-starter crm-starter intranet-starter; do
+            python tools/build.py --profile "$profile" --prefix pfx \
+              --targets schema,dataverse,sql,sharepoint
+          done
 
-      - name: Generate the Power BI model
-        run: python tools/pbigen.py --profile hr-starter --prefix wga --strict
+      # The full profiles exercise the overlay layers the starters do not reach.
+      - name: Build the full industry profiles
+        run: |
+          for profile in accounting-firm law-firm architecture-firm tech-company general-firm; do
+            python tools/build.py --profile "$profile" --prefix pfx \
+              --targets schema,dataverse,sql,sharepoint,demo
+          done
 
-      - name: Generate demo data
-        run: python tools/demodata.py --profile hr-starter --people 64 --strict
+      # Travel and the Intranet are the SharePoint pilots. --strict would fail on
+      # the lookup-threshold warnings, which are information about the platform
+      # rather than a defect, so limits.md carries them instead.
+      - name: Generate the SharePoint templates with their real site names
+        run: |
+          python tools/spgen.py --profile travel-starter --prefix pfx --site "Northwind Travel"
+          python tools/spgen.py --profile intranet-starter --prefix pfx --site "Adatum Intranet"
 
-      # All five fictional firms, so an industry file cannot rot unnoticed.
       - name: Generate every fictional firm
         run: |
           python tools/demodata.py --profile accounting-firm   --firm woodgrove --strict
@@ -59,37 +77,3 @@ jobs:
           python tools/demodata.py --profile architecture-firm --firm adatum    --strict
           python tools/demodata.py --profile tech-company      --firm contoso   --strict
           python tools/demodata.py --profile general-firm      --firm northwind --strict
-
-      - name: Generate the HR model-driven app
-        run: python tools/appgen.py --profile hr-starter --prefix wga --strict
-
-      - name: Generate the approval flows
-        run: python tools/flowgen.py --profile hr-starter --prefix wga --solution WoodgroveHR --strict
-
-      # Last, because it assembles what the generators above produced.
-      - name: Assemble the Dataverse solution
-        run: |
-          python tools/solgen.py --profile hr-starter --prefix wga \
-            --solution WoodgroveHR --publisher "Woodgrove Advisory" --strict
-
-      - name: Generate SQL migrations
-        run: python tools/sqlgen.py --profile hr-starter --strict
-
-      # Travel and the Intranet are the SharePoint pilots. --strict here would
-      # fail on the lookup-threshold warnings, which are information about the
-      # platform rather than a defect, so the limits report carries them instead.
-      - name: Generate the SharePoint templates
-        run: |
-          python tools/spgen.py --profile travel-starter --prefix pfx --site "Northwind Travel"
-          python tools/spgen.py --profile intranet-starter --prefix pfx --site "Adatum Intranet"
-
-      # A full-profile run catches anything an overlay adds that the starter
-      # profile does not exercise.
-      - name: Generate the full accounting-firm plan
-        run: python tools/dvgen.py --profile accounting-firm --prefix wga
-
-      - name: Generate the full accounting-firm SQL
-        run: python tools/sqlgen.py --profile accounting-firm --strict
-
-      - name: Generate the full accounting-firm SharePoint template
-        run: python tools/spgen.py --profile accounting-firm --prefix pfx --site Woodgrove

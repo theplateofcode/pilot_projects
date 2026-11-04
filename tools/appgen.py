@@ -560,7 +560,9 @@ def main(argv: list[str] | None = None) -> int:
     plan = generator.build()
 
     slug = re.sub(r"[^A-Za-z0-9]+", "-", str(plan["app"] or "app")).strip("-").lower()
-    out_dir = Path(args.out) if args.out else BUILD_DIR / "apps" / slug
+    # Per profile: a shared build/apps would let one profile's forms be
+    # packaged into another profile's solution, which is exactly what happened.
+    out_dir = Path(args.out) if args.out else BUILD_DIR / "apps" / args.profile / slug
     if not plan["errors"]:
         (out_dir / "Forms").mkdir(parents=True, exist_ok=True)
         (out_dir / "Views").mkdir(parents=True, exist_ok=True)
@@ -573,7 +575,8 @@ def main(argv: list[str] | None = None) -> int:
         (out_dir / "manifest.json").write_text(json.dumps(
             {k: v for k, v in plan.items()
              if k not in ("sitemap", "appModule", "forms", "views")}
-            | {"tables": generator.tables}, indent=2), encoding="utf-8")
+            | {"profile": args.profile, "tables": generator.tables},
+            indent=2), encoding="utf-8")
         counts = plan["counts"]
         print(f"Wrote {out_dir}")
         print(f"  {counts['areas']} areas, {counts['groups']} groups, "

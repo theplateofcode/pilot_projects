@@ -44,18 +44,25 @@ DEFINITION_SCHEMA = ("https://schema.management.azure.com/providers/Microsoft.Lo
                      "schemas/2016-06-01/workflowdefinition.json#")
 DATAVERSE_CONNECTOR = "shared_commondataserviceforapps"
 
-# The entities the approval engine serves. Each needs a submit trigger.
-APPROVABLE = {
-    "LeaveRequest": {"status_column": "status", "submitted": "submitted",
-                     "approved": "approved", "rejected": "rejected",
-                     "amount_column": None},
-    "Compensation": {"status_column": None, "submitted": None,
-                     "approved": None, "rejected": None,
-                     "amount_column": "amount"},
-    "JobRequisition": {"status_column": "status", "submitted": "pendingApproval",
-                       "approved": "open", "rejected": "draft",
-                       "amount_column": None},
-}
+# What the engine serves is derived from the model, not listed here: any table
+# with an approvalRequest lookup is under the engine's care. Across the full
+# accounting profile that is thirteen tables in all five modules — leave, pay,
+# requisitions and offers in HR, trips and expenses in Travel, timesheets in
+# Work, proposals in CRM, news and policies in the Intranet — which is what
+# "build the approval engine once" actually buys.
+WRITEBACK_COLUMN = "approvalRequest"
+
+# A status value meaning "a person has asked for this to be approved". The first
+# match in each list wins; a table whose status has no submitted-like value is
+# not triggered, because there is no moment to start a run from.
+SUBMITTED_KEYS = ("submitted", "pendingApproval", "inReview")
+APPROVED_KEYS = ("approved", "accepted", "open", "published", "extended")
+REJECTED_KEYS = ("rejected", "declined")
+# Where a status set has none of those, a rejection still needs somewhere to go
+# or the flow cannot write the outcome back at all. These are approximations, so
+# using one is recorded: a rejected requisition is cancelled, and rejected
+# content goes back to its author as a draft.
+REJECTED_FALLBACKS = ("cancelled", "draft")
 
 
 def flow_id(name: str) -> str:
@@ -95,32 +102,84 @@ class Generator:
         self.errors: list[str] = []
         self.warnings: list[str] = []
         self.notes: list[str] = []
-        self.approvable = {name: spec for name, spec in APPROVABLE.items()
-                           if name in self.entities}
+        self.approvable: dict[str, dict[str, Any]] = {}
+        self._discover()
         self._check()
 
+    def _discover(self) -> None:
+        """Every table the engine covers, and how to read and write its status."""
+        for name, spec in sorted(self.entities.items()):
+            attributes = spec["attributes"]
+            if WRITEBACK_COLUMN not in attributes:
+                continue
+            mode = (spec.get("platforms", {}) or {}).get("dataverse", "custom")
+            if mode in ("none", "native"):
+                self.notes.append(
+                    f"{name} has an {WRITEBACK_COLUMN} column but no Dataverse table")
+                continue
+
+            status_column = ("status"
+                             if attributes.get("status", {}).get("type") == "choice"
+                             else None)
+            keys: set[str] = set()
+            if status_column:
+                enum = attributes[status_column].get("enum")
+                keys = {v["key"] for v in (self.enums.get(enum) or {}).get("values", [])
+                        if not v.get("deprecated")}
+
+            submitted = self._first(keys, SUBMITTED_KEYS)
+            if status_column and submitted is None:
+                self.notes.append(
+                    f"{name}: its status has no submitted-like value "
+                    f"({', '.join(sorted(keys))}), so there is no moment to start a "
+                    "run from — an approval on it is raised by hand")
+                continue
+
+            rejected = self._first(keys, REJECTED_KEYS)
+            if status_column and rejected is None:
+                rejected = self._first(keys, REJECTED_FALLBACKS)
+                if rejected:
+                    self.notes.append(
+                        f"{name}: its status has no rejected-like value, so a rejection "
+                        f"is written back as '{rejected}' — check that is what the "
+                        "business means before the demo")
+
+            money = [a for a, c in attributes.items() if c["type"] == "money"]
+            self.approvable[name] = {
+                "status_column": status_column,
+                "submitted": submitted,
+                "approved": self._first(keys, APPROVED_KEYS),
+                "rejected": rejected,
+                "amount_column": money[0] if money else None,
+                "layer": spec.get("layer"),
+            }
+
+    @staticmethod
+    def _first(available: set[str], candidates: tuple[str, ...]) -> str | None:
+        for candidate in candidates:
+            if candidate in available:
+                return candidate
+        return None
+
     def _check(self) -> None:
-        for name in APPROVABLE:
-            if name not in self.entities:
-                self.notes.append(f"{name} is not in this profile, so it gets no trigger")
+        if not self.approvable:
+            self.errors.append(
+                f"no table in this profile has an {WRITEBACK_COLUMN} column, so there "
+                "is nothing for the engine to approve")
+
         for name, spec in self.approvable.items():
-            attributes = self.entities[name]["attributes"]
-            if "approvalRequest" not in attributes:
-                self.errors.append(
-                    f"{name} has no approvalRequest column, so the flow cannot "
-                    "write the outcome back")
-            for column in filter(None, (spec["status_column"], spec["amount_column"])):
-                if column not in attributes:
-                    self.errors.append(f"{name} has no '{column}' column")
-            if spec["status_column"]:
-                enum = attributes[spec["status_column"]].get("enum")
-                keys = {v["key"] for v in (self.enums.get(enum) or {}).get("values", [])}
-                for key in filter(None, (spec["submitted"], spec["approved"],
-                                         spec["rejected"])):
-                    if key not in keys:
-                        self.errors.append(
-                            f"{name}.{spec['status_column']}: '{key}' is not a value "
-                            f"of {enum}")
+            if spec["status_column"] and not spec["approved"]:
+                self.warnings.append(
+                    f"{name}: no approved-like status value, so the flow cannot write "
+                    "the outcome back")
+            if spec["status_column"] and not spec["rejected"]:
+                self.warnings.append(
+                    f"{name}: no rejected-like status value, so the flow cannot write "
+                    "a rejection back")
+            if not spec["status_column"]:
+                self.notes.append(
+                    f"{name} has no status column, so its run starts on creation "
+                    "rather than on a status change")
 
         for table in ("ApprovalPolicy", "ApprovalPolicyStep", "ApprovalRequest",
                       "ApprovalStep"):
@@ -154,9 +213,13 @@ class Generator:
         return None
 
     # -- the flows -----------------------------------------------------------
-    def flow_start(self) -> dict[str, Any]:
-        """A record is submitted: match a policy and open the first step."""
-        entity = next(iter(self.approvable), None)
+    def flow_start(self, entity: str | None = None) -> dict[str, Any]:
+        """A record is submitted: match a policy and open the first step.
+
+        One flow per approvable table, because each has its own trigger table and
+        its own submitted value. The body is identical, which is the point.
+        """
+        entity = entity or next(iter(self.approvable), None)
         if entity is None:
             raise FlowError("no approvable entity in this profile")
         spec = self.approvable[entity]
@@ -318,12 +381,20 @@ class Generator:
             },
             comment="So the record shows its latest run without a query."))
 
-        trigger_filter = (f"{status} eq {submitted_code}" if status else None)
+        # A table with a status is triggered when it reaches the submitted value.
+        # One with no status — Compensation — has no such moment, so the run
+        # starts when the row is created.
+        if status:
+            message, trigger_filter = "Update", f"{status} eq {submitted_code}"
+            moment = "is submitted"
+        else:
+            message, trigger_filter = "Create", None
+            moment = "is created"
         return self._wrap(
             name=f"approval-start-{logical(self.prefix, entity)}",
-            description=f"When a {entity} is submitted, match an ApprovalPolicy and "
+            description=f"When a {entity} {moment}, match an ApprovalPolicy and "
                         "open its first step.",
-            trigger=self._dataverse_trigger(table, "Update", trigger_filter),
+            trigger=self._dataverse_trigger(table, message, trigger_filter),
             actions=actions,
         )
 
@@ -759,12 +830,18 @@ class Generator:
     def build(self) -> dict[str, Any]:
         flows: list[dict[str, Any]] = []
         if not self.errors:
-            for builder in (self.flow_start, self.flow_decision, self.flow_reminders,
+            for entity in self.approvable:
+                try:
+                    flows.append(self.flow_start(entity))
+                except FlowError as exc:
+                    self.warnings.append(str(exc))
+            for builder in (self.flow_decision, self.flow_reminders,
                             self.flow_onboarding):
                 try:
                     flows.append(builder())
                 except FlowError as exc:
-                    self.warnings.append(str(exc))
+                    # A profile without checklists simply has no onboarding flow.
+                    self.notes.append(str(exc))
         return {
             "profile": self.model.get("profile"),
             "prefix": self.prefix,
@@ -773,6 +850,12 @@ class Generator:
                 "flows": len(flows),
                 "approvableEntities": len(self.approvable),
                 "approverTypes": len(approvals.APPROVER_TYPES),
+            },
+            "approvable": {
+                name: {"layer": spec["layer"], "status": spec["status_column"],
+                       "submitted": spec["submitted"], "approved": spec["approved"],
+                       "rejected": spec["rejected"], "amount": spec["amount_column"]}
+                for name, spec in self.approvable.items()
             },
             "flows": flows,
             "childFlows": [

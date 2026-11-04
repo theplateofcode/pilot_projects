@@ -1,6 +1,6 @@
 # The generators
 
-Nine tools turn the YAML in [`schemas/`](../schemas) into things you can deploy. This page is
+Twelve tools turn the YAML in [`schemas/`](../schemas) into things you can deploy. This page is
 the map: what each one takes, what it produces, and what it checks.
 
 ```mermaid
@@ -34,6 +34,7 @@ flowchart TD
 
 | Tool | Takes | Produces | Target |
 |---|---|---|---|
+| [`build.py`](../tools/build.py) | a profile | runs the rest, in a correct order | — |
 | [`schematool.py`](../tools/schematool.py) | the YAML | the data dictionary, a resolved model per profile | — |
 | [`ppcheck.py`](../tools/ppcheck.py) | `PP_*` credentials | an access report: environments, Dataverse, Power BI workspaces | — |
 | [`dvgen.py`](../tools/dvgen.py) | resolved model | choice sets, tables, columns, relationships, alternate keys | Dataverse |
@@ -75,6 +76,18 @@ run time. It now lives in one function that all four generators import, and
 [`tests/test_consistency.py`](../tests/test_consistency.py) asserts they agree.
 
 ## 3. Running them
+
+One command runs the lot:
+
+```bash
+python tools/build.py --profile hr-starter --prefix wga --solution WoodgroveHR
+```
+
+`--targets` picks a subset, so a SharePoint pilot need not run the Dataverse
+generators; `--list` prints the commands without running them; and a step whose
+spec declares a different profile is skipped with that reason, so the Phase 1
+roles are not run against the Travel profile. The rest of this section is what
+it does.
 
 Order matters only where one tool reads another's output.
 
@@ -139,6 +152,8 @@ Not a list of features: these are defects the checks found in this repo's own ou
 | relationship priority | `createdBy` had become the active path from `LeaveRequest` to `Employee`, crowding out `employee` |
 | `demodata` validation | `Candidate.retainUntil` was missing — the required field saying when an unsuccessful applicant's data must be deleted |
 | the approval engine, run against the demo firm | seven department heads could not have their leave approved, and the firm had no partners at all |
+| running the pipeline across every profile | `appgen` wrote to a shared `build/apps`, so a Travel solution was packaged with the HR app's forms and failed on tables that profile does not have |
+| deriving the approvable tables from the model | three tables have no rejected-like status value, so a rejection had nowhere to go |
 | comparing five firms | the leave entitlement was hardcoded at 25 days, so Contoso's 20-day PTO and Fabrikam's 27 days were both ignored |
 | `sqlgen` executed against SQLite | nothing, after the first pass — which is the point of running the DDL rather than asserting on its text |
 

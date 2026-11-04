@@ -75,6 +75,7 @@ schemas/
   industries/               industry overlays (one YAML document per overlay layer)
   profiles.yaml             which layers each kind of client gets
 tools/
+  build.py                  run the whole pipeline for one profile, in order
   schematool.py             validate · generate docs · export a resolved model
   ppcheck.py                test the service-principal login; list environments and workspaces
   dvgen.py                  resolved model → Dataverse metadata + an ordered deployment plan
@@ -109,6 +110,15 @@ python -m unittest discover -s tests                    # tests
 ```
 
 ## Building Phase 1
+
+Everything, in one command:
+
+```bash
+python tools/build.py --profile hr-starter --prefix wga --solution WoodgroveHR
+```
+
+`--targets schema,dataverse,sql,sharepoint,powerbi,demo` picks a subset, and
+`--list` prints the commands without running them. The individual tools are below.
 
 ```bash
 python tools/ppcheck.py

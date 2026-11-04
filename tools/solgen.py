@@ -92,7 +92,7 @@ class Builder:
         self.files: dict[str, str] = {}      # relative path -> contents
 
         self.dataverse = BUILD_DIR / "dataverse" / profile
-        self.apps = BUILD_DIR / "apps"
+        self.apps = BUILD_DIR / "apps" / profile
         self.flows = BUILD_DIR / "flows" / profile
 
     # -- inputs
@@ -246,8 +246,11 @@ class Builder:
         candidates = [d for d in sorted(self.apps.glob("*")) if d.is_dir()]
         if not candidates:
             self.warnings.append(
-                f"no app ({self.apps}) — run: python tools/appgen.py "
+                f"no app for this profile ({self.apps}) — run: python tools/appgen.py "
                 f"--profile {self.profile} --prefix {self.prefix}")
+            return
+        candidates = [d for d in candidates if self._app_matches(d)]
+        if not candidates:
             return
         app_dir = candidates[0]
         if len(candidates) > 1:
@@ -256,6 +259,7 @@ class Builder:
                 f"{app_dir.name} — pass --app-dir to choose another")
 
         app_xml = app_dir / "AppModule.xml"
+
         sitemap = app_dir / "sitemap.xml"
         if not (app_xml.exists() and sitemap.exists()):
             self.errors.append(f"{app_dir} has no AppModule.xml and sitemap.xml")
@@ -283,6 +287,19 @@ class Builder:
                     "type": component, "id": f"{path.stem}.{kind.lower()}",
                     "behaviour": BEHAVIOUR_INCLUDE_NOTHING,
                 })
+
+    def _app_matches(self, app_dir: Path) -> bool:
+        """An app built for another profile would name tables this plan lacks."""
+        manifest = app_dir / "manifest.json"
+        if not manifest.exists():
+            return True
+        declared = json.loads(manifest.read_text(encoding="utf-8")).get("profile")
+        if declared and declared != self.profile:
+            self.warnings.append(
+                f"{app_dir.name} was generated for the '{declared}' profile, not "
+                f"'{self.profile}' — not packaged")
+            return False
+        return True
 
     # -- the manifest
     def _manifest(self) -> None:

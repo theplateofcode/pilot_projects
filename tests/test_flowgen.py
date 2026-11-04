@@ -74,39 +74,69 @@ class TestValidationAgainstTheModel(unittest.TestCase):
                       "ApprovalStep"):
             self.assertTrue(any(table in e for e in g.errors), table)
 
-    def test_an_approvable_entity_without_a_writeback_column_is_an_error(self):
-        entities = {name: self._entity({"name": {"type": "string"}})
-                    for name in ("ApprovalPolicy", "ApprovalPolicyStep",
-                                 "ApprovalRequest", "ApprovalStep")}
-        entities["LeaveRequest"] = self._entity({
-            "name": {"type": "string"},
-            "status": {"type": "choice", "enum": "S"}})
-        g = flowgen.Generator(self._model(entities, enums={"S": {"values": [
-            {"code": 1, "key": "submitted"}, {"code": 2, "key": "approved"},
-            {"code": 3, "key": "rejected"}]}}), PREFIX)
-        self.assertTrue(any("approvalRequest column" in e for e in g.errors))
-
-    def test_a_status_value_the_enum_does_not_have_is_an_error(self):
-        entities = {name: self._entity({"name": {"type": "string"}})
-                    for name in ("ApprovalPolicy", "ApprovalPolicyStep",
-                                 "ApprovalRequest", "ApprovalStep")}
-        entities["LeaveRequest"] = self._entity({
-            "name": {"type": "string"},
-            "approvalRequest": {"type": "lookup", "target": "ApprovalRequest"},
-            "status": {"type": "choice", "enum": "S"}})
-        g = flowgen.Generator(self._model(entities, enums={"S": {"values": [
-            {"code": 1, "key": "draft"}]}}), PREFIX)
-        self.assertTrue(any("'submitted' is not a value" in e for e in g.errors))
-
-    def test_an_entity_not_in_the_profile_is_noted_not_failed(self):
+    def test_a_profile_with_nothing_approvable_is_an_error(self):
         entities = {name: self._entity({"name": {"type": "string"}})
                     for name in ("ApprovalPolicy", "ApprovalPolicyStep",
                                  "ApprovalRequest", "ApprovalStep")}
         g = flowgen.Generator(self._model(entities), PREFIX)
-        self.assertTrue(any("Compensation is not in this profile" in n for n in g.notes))
+        self.assertTrue(any("nothing for the engine to approve" in e for e in g.errors))
 
+    def test_any_table_with_a_writeback_column_is_discovered(self):
+        """The engine covers whatever the model says, not a list in the tool."""
+        entities = {name: self._entity({"name": {"type": "string"}})
+                    for name in ("ApprovalPolicy", "ApprovalPolicyStep",
+                                 "ApprovalRequest", "ApprovalStep")}
+        entities["TripRequest"] = self._entity({
+            "name": {"type": "string"},
+            "approvalRequest": {"type": "lookup", "target": "ApprovalRequest"},
+            "estimatedCost": {"type": "money"},
+            "status": {"type": "choice", "enum": "Trip"}})
+        g = flowgen.Generator(self._model(entities, enums={"Trip": {"values": [
+            {"code": 1, "key": "draft"}, {"code": 2, "key": "submitted"},
+            {"code": 3, "key": "approved"}, {"code": 4, "key": "rejected"}]}}), PREFIX)
+        self.assertIn("TripRequest", g.approvable)
+        self.assertEqual(g.approvable["TripRequest"]["submitted"], "submitted")
+        self.assertEqual(g.approvable["TripRequest"]["amount_column"], "estimatedCost")
 
-class TestCli(unittest.TestCase):
+    def test_a_status_with_no_submitted_like_value_is_skipped_with_a_reason(self):
+        entities = {name: self._entity({"name": {"type": "string"}})
+                    for name in ("ApprovalPolicy", "ApprovalPolicyStep",
+                                 "ApprovalRequest", "ApprovalStep")}
+        entities["RaidItem"] = self._entity({
+            "name": {"type": "string"},
+            "approvalRequest": {"type": "lookup", "target": "ApprovalRequest"},
+            "status": {"type": "choice", "enum": "Raid"}})
+        g = flowgen.Generator(self._model(entities, enums={"Raid": {"values": [
+            {"code": 1, "key": "open"}, {"code": 2, "key": "resolved"}]}}), PREFIX)
+        self.assertNotIn("RaidItem", g.approvable)
+        self.assertTrue(any("no submitted-like value" in n for n in g.notes))
+
+    def test_a_rejection_falls_back_and_says_so(self):
+        entities = {name: self._entity({"name": {"type": "string"}})
+                    for name in ("ApprovalPolicy", "ApprovalPolicyStep",
+                                 "ApprovalRequest", "ApprovalStep")}
+        entities["JobRequisition"] = self._entity({
+            "name": {"type": "string"},
+            "approvalRequest": {"type": "lookup", "target": "ApprovalRequest"},
+            "status": {"type": "choice", "enum": "Req"}})
+        g = flowgen.Generator(self._model(entities, enums={"Req": {"values": [
+            {"code": 1, "key": "draft"}, {"code": 2, "key": "pendingApproval"},
+            {"code": 3, "key": "open"}, {"code": 4, "key": "cancelled"}]}}), PREFIX)
+        self.assertEqual(g.approvable["JobRequisition"]["rejected"], "cancelled")
+        self.assertTrue(any("no rejected-like value" in n for n in g.notes))
+
+    def test_a_table_with_no_status_runs_on_creation(self):
+        entities = {name: self._entity({"name": {"type": "string"}})
+                    for name in ("ApprovalPolicy", "ApprovalPolicyStep",
+                                 "ApprovalRequest", "ApprovalStep")}
+        entities["Compensation"] = self._entity({
+            "name": {"type": "string"},
+            "approvalRequest": {"type": "lookup", "target": "ApprovalRequest"},
+            "amount": {"type": "money"}})
+        g = flowgen.Generator(self._model(entities), PREFIX)
+        self.assertIsNone(g.approvable["Compensation"]["status_column"])
+        self.assertTrue(any("starts on creation" in n for n in g.notes))
+
     def test_a_bad_prefix_is_rejected(self):
         for bad in ("W", "1abc", "toolongprefix", "ab-c"):
             self.assertEqual(flowgen.main(["--profile", "x", "--prefix", bad]), 2, bad)
@@ -140,12 +170,18 @@ class TestTheRealFlows(unittest.TestCase):
         self.assertEqual(self.plan["errors"], [])
         self.assertEqual(self.plan["warnings"], [])
 
-    def test_four_flows_are_generated(self):
+    def test_one_start_flow_per_approvable_table_plus_the_three_shared_ones(self):
         names = [f["_name"] for f in self.plan["flows"]]
-        self.assertEqual(len(names), 4)
+        starts = [n for n in names if n.startswith("approval-start-")]
+        self.assertEqual(len(starts), len(self.plan["approvable"]))
         self.assertIn("approval-decision", names)
         self.assertIn("approval-reminders", names)
         self.assertIn("onboarding-checklist", names)
+
+    def test_the_engine_reaches_more_than_one_module(self):
+        """Which is what "build the approval engine once" is supposed to buy."""
+        layers = {spec["layer"] for spec in self.plan["approvable"].values()}
+        self.assertGreaterEqual(len(layers), 1)
 
     def test_each_flow_has_one_trigger_and_at_least_one_action(self):
         for flow in self.plan["flows"]:
@@ -243,13 +279,40 @@ class TestTheRealFlows(unittest.TestCase):
         for key, expected in codes["ChecklistType"].items():
             self.assertEqual(generator._checklist_type_code(key), expected, key)
 
-    def test_the_start_flow_triggers_on_the_submitted_status(self):
-        start = next(f for f in self.plan["flows"] if f["_name"].startswith("approval-start"))
-        trigger = start["properties"]["definition"]["triggers"]["When_it_starts"]
-        expression = trigger["inputs"]["parameters"]["subscriptionRequest/filterexpression"]
-        submitted = next(v["code"] for v in self.model["enums"]
-                         ["LeaveRequestStatus"]["values"] if v["key"] == "submitted")
-        self.assertIn(str(submitted), expression)
+    def test_a_table_with_no_status_is_triggered_on_create(self):
+        """Compensation has no submitted moment, so the row appearing is the moment."""
+        for flow in self.plan["flows"]:
+            if not flow["_name"].startswith("approval-start-"):
+                continue
+            entity = next((n for n in self.plan["approvable"]
+                           if flowgen.logical(PREFIX, n)
+                           == flow["_name"][len("approval-start-"):]), None)
+            if self.plan["approvable"][entity]["status"] is not None:
+                continue
+            trigger = flow["properties"]["definition"]["triggers"]["When_it_starts"]
+            self.assertEqual(
+                trigger["inputs"]["parameters"]["subscriptionRequest/message"], 1,
+                f"{entity} should trigger on Create")
+
+    def test_each_start_flow_triggers_on_its_own_submitted_status(self):
+        for flow in self.plan["flows"]:
+            if not flow["_name"].startswith("approval-start-"):
+                continue
+            table = flow["_name"][len("approval-start-"):]
+            entity = next((n for n in self.plan["approvable"]
+                           if flowgen.logical(PREFIX, n) == table), None)
+            self.assertIsNotNone(entity, table)
+            spec = self.plan["approvable"][entity]
+            trigger = flow["properties"]["definition"]["triggers"]["When_it_starts"]
+            expression = trigger["inputs"]["parameters"].get(
+                "subscriptionRequest/filterexpression")
+            if spec["status"] is None:
+                self.assertIsNone(expression, entity)
+                continue
+            enum = self.model["entities"][entity]["attributes"]["status"]["enum"]
+            code = next(v["code"] for v in self.model["enums"][enum]["values"]
+                        if v["key"] == spec["submitted"])
+            self.assertIn(str(code), expression, entity)
 
     def test_the_start_flow_stops_when_no_policy_matches(self):
         """Otherwise the record sits in draft forever and nobody is told."""
