@@ -171,7 +171,7 @@ class TestFieldTypes(unittest.TestCase):
         element = next(f for f in tree(g).findall(".//pnp:SiteFields/Field", NS)
                        if f.get("Name") == "pfxLeaveType")
         self.assertEqual(element.get("Type"), "Lookup")
-        self.assertEqual(element.get("List"), "{Lists/LeaveTypes}")
+        self.assertEqual(element.get("List"), "{listid:Leave Types}")
 
     def test_a_lookup_at_a_list_that_does_not_exist_is_reported(self):
         g = spgen.Generator(model({
@@ -444,13 +444,21 @@ class TestRealProfiles(unittest.TestCase):
                                          f"{profile}: {list_instance.get('Title')}")
 
     def test_every_lookup_points_at_a_list_in_the_template(self):
+        """PnP resolves {listid:<title>}, so the title must be a list's Title."""
         for profile in self.PROFILES:
             root = ET.fromstring(self._plan(profile)["xml"])
-            urls = {l.get("Url") for l in root.findall(".//pnp:Lists/pnp:ListInstance", NS)}
+            titles = {l.get("Title")
+                      for l in root.findall(".//pnp:Lists/pnp:ListInstance", NS)}
             for field in root.findall(".//pnp:SiteFields/Field", NS):
-                if field.get("Type") in ("Lookup", "LookupMulti") and field.get("List"):
-                    self.assertIn(field.get("List").strip("{}"), urls,
-                                  f"{profile}: {field.get('Name')}")
+                if field.get("Type") not in ("Lookup", "LookupMulti"):
+                    continue
+                value = field.get("List")
+                if not value:
+                    continue
+                self.assertTrue(value.startswith("{listid:") and value.endswith("}"),
+                                f"{profile}: {field.get('Name')} has List={value}")
+                self.assertIn(value[len("{listid:"):-1], titles,
+                              f"{profile}: {field.get('Name')}")
 
     def test_hr_reports_more_limits_than_travel(self):
         """Which is the evidence for putting HR on Dataverse and Travel on SharePoint."""

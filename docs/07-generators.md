@@ -156,6 +156,7 @@ Not a list of features: these are defects the checks found in this repo's own ou
 | deriving the approvable tables from the model | three tables have no rejected-like status value, so a rejection had nowhere to go |
 | comparing five firms | the leave entitlement was hardcoded at 25 days, so Contoso's 20-day PTO and Fabrikam's 27 days were both ignored |
 | `sqlgen` executed against SQLite | nothing, after the first pass — which is the point of running the DDL rather than asserting on its text |
+| a code review of the generators | five more: `solgen` wrote its manifest before the last components were added, so a solution carrying forms on `account` and `contact` was short three components; `demodata`'s two-step leave policy was unreachable because leave was capped at ten days and the policy needed eleven; `spgen` set a lookup's list to a braced folder path, which is not a PnP token; `flowgen` prefixed a standard table's entity set, giving `wga_accounts` for `accounts`; and `appgen` pointed a view's click-through at `createdon` for a table whose primary column is generated |
 
 ## 5. How each one is tested
 

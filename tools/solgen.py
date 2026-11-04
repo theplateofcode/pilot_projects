@@ -120,6 +120,10 @@ class Builder:
         self._roles()
         self._workflows()
         self._app()
+        # check() can still add components — a standard table that carries forms
+        # needs an entity component — so the manifest is written last, after
+        # everything that can contribute to it has run.
+        self._check_folders()
         self._manifest()
 
     def _entities(self, plan: dict[str, Any]) -> None:
@@ -419,7 +423,17 @@ pac solution import --path "$SOLUTION.zip" --publish-changes --force-overwrite
                         f"attribute '{component['id']}' names a table that is not "
                         "in the solution")
 
-        # Every form and view must belong to a table in the solution.
+        for required in ("src/Other/Solution.xml", "src/Other/Customizations.xml",
+                         "src/[Content_Types].xml"):
+            if required not in self.files:
+                self.errors.append(f"{required} was not generated")
+
+    def _check_folders(self) -> None:
+        """Every form and view must belong to a table the solution accounts for.
+
+        Runs before the manifest, because a standard table that carries forms
+        needs an entity component and the manifest has to list it.
+        """
         entity_folders = {path.split("/")[2] for path in self.files
                           if path.startswith("src/Entities/")}
         for folder in sorted(entity_folders):
@@ -431,18 +445,15 @@ pac solution import --path "$SOLUTION.zip" --publish-changes --force-overwrite
                 self.notes.append(
                     f"{folder} is the standard {self.standard[folder]} table, so its "
                     "forms and views are added to a table that already exists")
-                self.components.append({
-                    "type": "entity", "id": self.standard[folder],
-                    "behaviour": BEHAVIOUR_INCLUDE_NOTHING,
-                })
+                existing = {c["id"] for c in self.components if c["type"] == "entity"}
+                if self.standard[folder] not in existing:
+                    self.components.append({
+                        "type": "entity", "id": self.standard[folder],
+                        "behaviour": BEHAVIOUR_INCLUDE_NOTHING,
+                    })
                 continue
             self.errors.append(
                 f"src/Entities/{folder} has forms or views but no Entity.xml")
-
-        for required in ("src/Other/Solution.xml", "src/Other/Customizations.xml",
-                         "src/[Content_Types].xml"):
-            if required not in self.files:
-                self.errors.append(f"{required} was not generated")
 
     def build(self) -> dict[str, Any]:
         self.collect()

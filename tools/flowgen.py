@@ -73,14 +73,18 @@ def logical(prefix: str, name: str) -> str:
     return f"{prefix}_{re.sub(r'[^0-9a-zA-Z]', '', name).lower()}"
 
 
-def plural(prefix: str, name: str) -> str:
+def plural(prefix: str, name: str, logical_name: str | None = None) -> str:
     """The Dataverse entity set name, which is the plural of the logical name.
 
     Dataverse applies this rule itself when a table is created, and every Web
     API path and flow action uses the result, so getting it wrong produces a
     flow that imports cleanly and then cannot find the table.
+
+    `logical_name` is the table's real logical name where that is not the
+    prefixed one: a table mapped to standard:account is `account`, and its
+    entity set is `accounts`, not `<prefix>_accounts`.
     """
-    base = logical(prefix, name)
+    base = logical_name or logical(prefix, name)
     if base.endswith("y") and not base.endswith(("ay", "ey", "iy", "oy", "uy")):
         return base[:-1] + "ies"
     if base.endswith(("s", "x", "z", "ch", "sh")):
@@ -161,6 +165,14 @@ class Generator:
                 return candidate
         return None
 
+    def entity_set(self, entity: str) -> str:
+        """The entity set name for a table in this model, standard ones included."""
+        mode = (self.entities.get(entity, {}).get("platforms", {}) or {}) \
+            .get("dataverse", "custom")
+        if isinstance(mode, str) and mode.startswith("standard:"):
+            return plural(self.prefix, entity, mode.split(":", 1)[1].strip().lower())
+        return plural(self.prefix, entity)
+
     def _check(self) -> None:
         if not self.approvable:
             self.errors.append(
@@ -223,7 +235,7 @@ class Generator:
         if entity is None:
             raise FlowError("no approvable entity in this profile")
         spec = self.approvable[entity]
-        table = plural(self.prefix, entity)
+        table = self.entity_set(entity)
         status = logical(self.prefix, spec["status_column"]) if spec["status_column"] else None
         submitted_code = (self._status_code(entity, spec["status_column"], spec["submitted"])
                           if spec["status_column"] else None)
@@ -243,13 +255,13 @@ class Generator:
             return name
 
         add("Get_the_submitter", self._dataverse_get(
-            plural(self.prefix, "Employee"),
+            self.entity_set("Employee"),
             f"@{{triggerOutputs()?['body/_ownerid_value']}}",
             select=["employeenumber", "orgunit", "statecode"],
             comment="The requester's directory record, for the approver rules."))
 
         add("List_matching_policies", self._dataverse_list(
-            plural(self.prefix, "ApprovalPolicy"),
+            self.entity_set("ApprovalPolicy"),
             filter_expression=(
                 f"{logical(self.prefix, 'appliestoentity')} eq "
                 f"'{logical(self.prefix, entity)}'"),
@@ -288,7 +300,7 @@ class Generator:
         })
 
         add("Create_the_approval_request", self._dataverse_create(
-            plural(self.prefix, "ApprovalRequest"),
+            self.entity_set("ApprovalRequest"),
             {
                 logical(self.prefix, "subject"): "@{triggerOutputs()?['body/"
                                                  f"{logical(self.prefix, 'name')}']}}",
@@ -299,7 +311,7 @@ class Generator:
                 logical(self.prefix, "submittedon"): "@{utcNow()}",
                 logical(self.prefix, "currentstep"): 1,
                 f"{logical(self.prefix, 'policy')}@odata.bind":
-                    f"/{plural(self.prefix, 'ApprovalPolicy')}("
+                    f"/{self.entity_set('ApprovalPolicy')}("
                     "@{outputs('Pick_the_policy')?["
                     f"'{logical(self.prefix, 'approvalpolicyid')}']}})",
             },
@@ -307,7 +319,7 @@ class Generator:
                     "request, set at the end."))
 
         add("List_the_policy_steps", self._dataverse_list(
-            plural(self.prefix, "ApprovalPolicyStep"),
+            self.entity_set("ApprovalPolicyStep"),
             filter_expression="_" + logical(self.prefix, "policy") + "_value eq "
                               "@{outputs('Pick_the_policy')?['"
                               + logical(self.prefix, "approvalpolicyid") + "']}",
@@ -343,7 +355,7 @@ class Generator:
                     "runAfter": {},
                 },
                 "Create_the_step": self._dataverse_create(
-                    plural(self.prefix, "ApprovalStep"),
+                    self.entity_set("ApprovalStep"),
                     {
                         logical(self.prefix, "name"):
                             "@{items('For_each_policy_step')?['"
@@ -360,7 +372,7 @@ class Generator:
                         logical(self.prefix, "comments"):
                             "@{body('Resolve_the_approver')?['reason']}",
                         f"{logical(self.prefix, 'request')}@odata.bind":
-                            f"/{plural(self.prefix, 'ApprovalRequest')}("
+                            f"/{self.entity_set('ApprovalRequest')}("
                             "@{outputs('Create_the_approval_request')?['body/"
                             + logical(self.prefix, "approvalrequestid") + "']})",
                     },
@@ -375,7 +387,7 @@ class Generator:
             "@{triggerOutputs()?['body/" + logical(self.prefix, entity) + "id']}",
             {
                 f"{logical(self.prefix, 'approvalrequest')}@odata.bind":
-                    f"/{plural(self.prefix, 'ApprovalRequest')}("
+                    f"/{self.entity_set('ApprovalRequest')}("
                     "@{outputs('Create_the_approval_request')?['body/"
                     + logical(self.prefix, "approvalrequestid") + "']})",
             },
@@ -403,13 +415,13 @@ class Generator:
         actions: dict[str, Any] = {}
 
         actions["Get_the_run"] = self._dataverse_get(
-            plural(self.prefix, "ApprovalRequest"),
+            self.entity_set("ApprovalRequest"),
             "@{triggerOutputs()?['body/_" + logical(self.prefix, 'request') + "_value']}",
             comment="The run this step belongs to.")
         actions["Get_the_run"]["runAfter"] = {}
 
         actions["List_the_steps_of_this_run"] = self._dataverse_list(
-            plural(self.prefix, "ApprovalStep"),
+            self.entity_set("ApprovalStep"),
             filter_expression="_" + logical(self.prefix, "request") + "_value eq "
                               "@{triggerOutputs()?['body/_"
                               + logical(self.prefix, 'request') + "_value']}",
@@ -435,7 +447,7 @@ class Generator:
                     "case": rejected,
                     "actions": {
                         "Close_the_run_as_rejected": self._dataverse_update(
-                            plural(self.prefix, "ApprovalRequest"),
+                            self.entity_set("ApprovalRequest"),
                             "@{triggerOutputs()?['body/_"
                             + logical(self.prefix, 'request') + "_value']}",
                             {
@@ -484,7 +496,7 @@ class Generator:
             description="When an ApprovalStep is decided, evaluate the completion "
                         "rule and either open the next step or close the run.",
             trigger=self._dataverse_trigger(
-                plural(self.prefix, "ApprovalStep"), "Update",
+                self.entity_set("ApprovalStep"), "Update",
                 f"{logical(self.prefix, 'status')} ne {pending}"),
             actions=actions,
         )
@@ -508,7 +520,7 @@ class Generator:
                         "@empty(outputs('Find_the_next_waiting_step'))", True]},
                     "actions": {
                         "Close_the_run_as_approved": self._dataverse_update(
-                            plural(self.prefix, "ApprovalRequest"),
+                            self.entity_set("ApprovalRequest"),
                             "@{triggerOutputs()?['body/_"
                             + logical(self.prefix, 'request') + "_value']}",
                             {
@@ -521,7 +533,7 @@ class Generator:
                     "else": {
                         "actions": {
                             "Make_the_next_step_pending": self._dataverse_update(
-                                plural(self.prefix, "ApprovalStep"),
+                                self.entity_set("ApprovalStep"),
                                 "@{outputs('Find_the_next_waiting_step')?['"
                                 + logical(self.prefix, "approvalstepid") + "']}",
                                 {
@@ -557,7 +569,7 @@ class Generator:
             actions={
                 "List_pending_steps": {
                     **self._dataverse_list(
-                        plural(self.prefix, "ApprovalStep"),
+                        self.entity_set("ApprovalStep"),
                         filter_expression=f"{logical(self.prefix, 'status')} eq {pending}",
                         order_by=f"{logical(self.prefix, 'dueon')} asc",
                         comment="Pending only. The sweep is restartable, so a failed "
@@ -642,11 +654,11 @@ class Generator:
             description="When an Employment row is created, instantiate the onboarding "
                         "checklist. Triggered on creation rather than on the start "
                         "date, because laptops take time.",
-            trigger=self._dataverse_trigger(plural(self.prefix, "Employment"), "Create"),
+            trigger=self._dataverse_trigger(self.entity_set("Employment"), "Create"),
             actions={
                 "Find_the_onboarding_template": {
                     **self._dataverse_list(
-                        plural(self.prefix, "ChecklistTemplate"),
+                        self.entity_set("ChecklistTemplate"),
                         filter_expression=f"{logical(self.prefix, 'checklisttype')} eq "
                                           f"{self._checklist_type_code('onboarding')}",
                         comment="One template per checklist type and legal entity."),
@@ -654,7 +666,7 @@ class Generator:
                 },
                 "Create_the_employee_checklist": {
                     **self._dataverse_create(
-                        plural(self.prefix, "EmployeeChecklist"),
+                        self.entity_set("EmployeeChecklist"),
                         {
                             logical(self.prefix, "name"):
                                 "@{triggerOutputs()?['body/"
@@ -681,7 +693,7 @@ class Generator:
                 },
                 "List_the_template_tasks": {
                     **self._dataverse_list(
-                        plural(self.prefix, "ChecklistTemplateTask"),
+                        self.entity_set("ChecklistTemplateTask"),
                         order_by=f"{logical(self.prefix, 'sequence')} asc",
                         comment="In sequence, so the checklist reads in order."),
                     "runAfter": {"Create_the_employee_checklist": ["Succeeded"]},

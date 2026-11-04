@@ -51,6 +51,12 @@ class TestNaming(unittest.TestCase):
     def test_a_vowel_before_the_y_keeps_the_s(self):
         self.assertEqual(flowgen.plural("wga", "Journey"), "wga_journeys")
 
+    def test_a_standard_tables_entity_set_is_not_prefixed(self):
+        """Account maps to standard:account, so its entity set is `accounts`."""
+        self.assertEqual(flowgen.plural("wga", "Account", "account"), "accounts")
+        self.assertEqual(flowgen.plural("wga", "Activity", "activitypointer"),
+                         "activitypointers")
+
     def test_flow_ids_are_stable(self):
         self.assertEqual(flowgen.flow_id("approval-decision"),
                          flowgen.flow_id("approval-decision"))
@@ -169,6 +175,25 @@ class TestTheRealFlows(unittest.TestCase):
     def test_no_errors_and_no_warnings(self):
         self.assertEqual(self.plan["errors"], [])
         self.assertEqual(self.plan["warnings"], [])
+
+    def test_the_generator_resolves_a_standard_tables_entity_set(self):
+        """A standard table's set must not carry the publisher prefix."""
+        g = flowgen.Generator(self.model, PREFIX)
+        found = 0
+        for entity, spec in self.model["entities"].items():
+            mode = (spec.get("platforms", {}) or {}).get("dataverse", "custom")
+            if not (isinstance(mode, str) and mode.startswith("standard:")):
+                continue
+            found += 1
+            logical_name = mode.split(":", 1)[1].strip().lower()
+            entity_set = g.entity_set(entity)
+            self.assertFalse(entity_set.startswith(f"{PREFIX}_"),
+                             f"{entity} -> {entity_set}")
+            # The plural may change the stem (transactioncurrency ->
+            # transactioncurrencies), so compare against the same rule.
+            self.assertEqual(entity_set, flowgen.plural(PREFIX, entity, logical_name),
+                             entity)
+        self.assertGreater(found, 0, "no standard tables in this profile to check")
 
     def test_one_start_flow_per_approvable_table_plus_the_three_shared_ones(self):
         names = [f["_name"] for f in self.plan["flows"]]

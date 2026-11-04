@@ -287,6 +287,18 @@ class TestViews(unittest.TestCase):
         first = layout.find("row/cell").get("name")
         self.assertEqual(first, "wga_name")
 
+    def test_an_auto_primary_jumps_to_the_generated_name_column(self):
+        """`primary: auto` has no attribute of that name; dvgen makes one."""
+        g = appgen.Generator(spec(), model({"T": entity(primary="auto")}), PREFIX)
+        layout = ET.fromstring(self._view(g).find("layoutxml").text)
+        self.assertEqual(layout.get("jump"), "wga_name")
+
+    def test_a_named_primary_still_jumps_to_itself(self):
+        g = appgen.Generator(spec(), model({"T": entity(
+            {**BASE, "name": attr("string", required=True)})}), PREFIX)
+        layout = ET.fromstring(self._view(g).find("layoutxml").text)
+        self.assertEqual(layout.get("jump"), "wga_name")
+
     def test_a_view_is_filtered_to_active_rows(self):
         g = appgen.Generator(spec(), model({"T": entity()}), PREFIX)
         fetch = ET.fromstring(self._view(g).find("fetchxml").text)

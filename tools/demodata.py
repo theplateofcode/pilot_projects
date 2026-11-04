@@ -198,6 +198,13 @@ LAST_NAMES = [
 # an Entra group object id; the demo resolves it to the firm's top rung.
 TOP_RUNG_GROUP = "top-rung"
 
+# A request longer than this needs the service line head as well as the line
+# manager. The number is in one place because the policy's name, its threshold
+# and the selector all have to agree, and they did not: the selector required
+# more than ten days while leave was capped at ten, so the two-step chain was
+# seeded and never used.
+LONG_LEAVE_DAYS = 10
+
 
 # Fictional client names, built from neutral parts so none reads as a real
 # company. Used for the CRM pilot's accounts, leads and opposing parties.
@@ -697,11 +704,14 @@ class Firm:
             for _ in range(count):
                 leave_type = self.pick_weighted(self.config.leave["mix"])["code"]
                 start = self.date_between(year_start, min(year_end, TODAY + dt.timedelta(days=120)))
-                length = self.random.choice([1, 1, 2, 3, 5, 5, 10])
+                # Up to four weeks: parental and study leave are measured in
+                # weeks, and without a request over ten days the two-step
+                # approval policy can never be chosen.
+                length = self.random.choice([1, 1, 2, 3, 5, 5, 10, 15, 20])
                 end = start + dt.timedelta(days=length - 1)
                 if end > year_end:
                     continue
-                duration = float(min(length, 10))
+                duration = float(length)
 
                 if start > TODAY:
                     status = self.random.choice(["submitted", "submitted", "approved"])
@@ -773,7 +783,8 @@ class Firm:
             "completionRule": "anyApprover", "allowDelegation": True, "timeoutHours": 72,
         })
         self.add("ApprovalPolicy", {
-            "code": "POL-LEAVE-LONG", "name": "Leave — over 10 days",
+            "code": "POL-LEAVE-LONG",
+            "name": f"Leave — over {LONG_LEAVE_DAYS} days",
             "appliesToEntity": "wga_leaverequest", "legalEntity": self.config.firm["code"],
             "evaluationOrder": 10, "reminderAfterHours": 24, "escalateAfterHours": 48,
             "description": "Longer absences also need the service line head.",
@@ -804,7 +815,8 @@ class Firm:
                 "code": code,
                 "subject": request["name"],
                 "regarding": {"table": "LeaveRequest", "key": request["code"]},
-                "policy": "POL-LEAVE-LONG" if request["duration"] > 10 else "POL-LEAVE-ALL",
+                "policy": ("POL-LEAVE-LONG" if request["duration"] > LONG_LEAVE_DAYS
+                           else "POL-LEAVE-ALL"),
                 "requester": request["employee"],
                 "status": "approved" if approved else "rejected",
                 "submittedOn": request["submittedOn"],
@@ -1675,8 +1687,14 @@ class Validator:
     def _check_row(self, table: str, index: int, row: dict[str, Any],
                    attributes: dict[str, Any]) -> None:
         where = f"{table}[{index}]"
+        # demodata adds a synthetic `code` natural key to tables that have no
+        # such column, so an unknown `code` is expected. Where `code` is a real
+        # column it must be checked like any other, which it was not.
+        synthetic_code = "code" not in attributes
         for field, value in row.items():
-            if field.startswith("_") or field == "code":
+            if field.startswith("_"):
+                continue
+            if field == "code" and synthetic_code:
                 continue
             spec = attributes.get(field)
             if spec is None and not self._is_address_part(field, attributes):

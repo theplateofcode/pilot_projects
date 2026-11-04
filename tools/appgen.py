@@ -441,9 +441,15 @@ class Generator:
         grid = ET.Element("grid")
         grid.set("name", "resultset")
         grid.set("object", "1")
-        primary_column = spec["attributes"].get(primary)
-        grid.set("jump", (self.physical(entity, primary, primary_column)
-                          if primary_column else None) or "createdon")
+        # `primary: auto` has no attribute of that name: dvgen generates a
+        # <prefix>_name column for it, and that is what the grid should jump to.
+        if primary == "auto":
+            jump = logical(self.prefix, "name")
+        else:
+            primary_column = spec["attributes"].get(primary)
+            jump = (self.physical(entity, primary, primary_column)
+                    if primary_column else None)
+        grid.set("jump", jump or "createdon")
         grid.set("select", "1")
         grid.set("preview", "1")
         grid.set("icon", "1")

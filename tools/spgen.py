@@ -450,7 +450,10 @@ class Generator:
         if field["type"] in ("Lookup", "LookupMulti") and field["target"]:
             target = field["target"]
             if target in self.fields:
-                element.set("List", f"{{{self.list_url(target)}}}")
+                # PnP resolves a list by title with {listid:<title>}. The list's
+                # folder path in braces is not a token it knows, so a lookup set
+                # that way is created unbound.
+                element.set("List", f"{{listid:{self._labels(target)[1]}}}")
                 element.set("ShowField", self._display_field(target))
             else:
                 self.warnings.append(

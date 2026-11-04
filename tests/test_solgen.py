@@ -161,6 +161,38 @@ class TestTheRealSolution(unittest.TestCase):
         self.assertEqual(len(root.findall(".//RootComponent")),
                          len(self.plan["components"]))
 
+    def test_the_count_still_matches_when_the_app_carries_standard_tables(self):
+        """The manifest used to be written before those components were added.
+
+        hr-starter's site map has no standard tables, so the check above passed
+        while law-firm-crm was short three components in Solution.xml.
+        """
+        if not (ROOT / "build" / "dataverse" / "law-firm-crm" / "plan.json").exists():
+            self.skipTest("run: python tools/build.py --profile law-firm-crm --prefix fab")
+        plan = solgen.Builder("law-firm-crm", "fab", "FabrikamCRM", "P",
+                              "1.0.0.0").build()
+        self.assertEqual(plan["errors"], [])
+        root = ET.fromstring(plan["files"]["src/Other/Solution.xml"])
+        self.assertEqual(len(root.findall(".//RootComponent")), len(plan["components"]))
+
+    def test_a_standard_table_carrying_forms_is_declared_as_a_component(self):
+        if not (ROOT / "build" / "dataverse" / "law-firm-crm" / "plan.json").exists():
+            self.skipTest("run: python tools/build.py --profile law-firm-crm --prefix fab")
+        plan = solgen.Builder("law-firm-crm", "fab", "FabrikamCRM", "P",
+                              "1.0.0.0").build()
+        root = ET.fromstring(plan["files"]["src/Other/Solution.xml"])
+        entities = {c.get("schemaName") for c in root.findall(".//RootComponent")
+                    if c.get("type") == "1"}
+        for standard in ("account", "contact"):
+            self.assertIn(standard, entities,
+                          f"the solution must declare {standard}, whose forms it carries")
+
+    def test_no_component_is_declared_twice(self):
+        root = ET.fromstring(self.plan["files"]["src/Other/Solution.xml"])
+        names = [(c.get("type"), c.get("schemaName"))
+                 for c in root.findall(".//RootComponent")]
+        self.assertEqual(len(names), len(set(names)))
+
     def test_tables_carry_their_subcomponents_and_attributes_do_not(self):
         """An entity that does not carry its subcomponents loses them on upgrade."""
         root = ET.fromstring(self.plan["files"]["src/Other/Solution.xml"])

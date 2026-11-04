@@ -121,6 +121,75 @@ class TestValidatorColumns(unittest.TestCase):
         self.assertTrue(any("required address 'home'" in e for e in v.errors))
 
 
+class TestValidatorRealCodeColumn(unittest.TestCase):
+    """`code` used to be skipped outright, whatever the entity.
+
+    That was a blind spot rather than a live bug: every real `code` column in
+    the schema today is a plain string, and the validator has nothing to say
+    about one. The skip exists because demodata adds a synthetic `code` natural
+    key to tables that have no such column. It is now conditional on the entity
+    actually lacking the column, so the day a `code` becomes a choice or a
+    lookup it is checked like anything else — which is what these tests pin.
+    """
+
+    @staticmethod
+    def _model(code_spec):
+        m = tiny_model()
+        m["entities"]["LeaveType"] = {
+            "layer": "hr", "description": "A leave type.", "ownership": "organization",
+            "volume": "low", "sensitivity": "internal",
+            "platforms": {"dataverse": "custom"}, "primary": "name", "keys": [],
+            "attributes": {
+                "id": {"type": "guid", "required": True, "trait": "base",
+                       "physical": {"dataverse": "<table>id (native primary key)"}},
+                "name": {"type": "string", "required": True},
+                "code": code_spec,
+            },
+        }
+        return m
+
+    def test_a_bad_choice_value_in_a_code_column_is_caught(self):
+        """With the old unconditional skip this passed validation silently."""
+        model = self._model({"type": "choice", "enum": "EmploymentStatus",
+                             "required": True})
+        v = validate({"LeaveType": [{"code": "nonsense", "name": "Annual"}]}, model)
+        self.assertTrue(any("nonsense" in e and "EmploymentStatus" in e
+                            for e in v.errors), v.errors)
+
+    def test_a_good_choice_value_in_a_code_column_passes(self):
+        model = self._model({"type": "choice", "enum": "EmploymentStatus",
+                             "required": True})
+        v = validate({"LeaveType": [{"code": "active", "name": "Annual"}]}, model)
+        self.assertEqual(v.errors, [])
+
+    def test_an_unresolvable_lookup_in_a_code_column_is_caught(self):
+        model = self._model({"type": "lookup", "target": "Currency"})
+        model["seed"] = {"Currency": [{"code": "GBP"}]}
+        v = validate({"LeaveType": [{"code": "ZZZ", "name": "Annual"}]}, model)
+        self.assertTrue(any("ZZZ" in e for e in v.errors), v.errors)
+
+    def test_a_synthetic_code_on_a_table_without_one_is_still_ignored(self):
+        """The reason the skip exists: demodata's own natural key."""
+        v = validate({"OrgUnit": [{"code": "AUD", "name": "Audit"}]})
+        self.assertFalse(any("'code' is not a column" in e for e in v.errors))
+
+    def test_every_real_code_column_in_the_schema_is_a_plain_string(self):
+        """Which is why the old skip never suppressed a real error.
+
+        If this ever fails, a code column has gained a type the validator can
+        check, and the conditional skip above is what makes that work.
+        """
+        import glob
+        for path in glob.glob(str(ROOT / "build" / "*.model.json")):
+            with open(path, encoding="utf-8") as handle:
+                entities = json.load(handle)["entities"]
+            for name, spec in entities.items():
+                column = spec["attributes"].get("code")
+                if column:
+                    self.assertEqual(column["type"], "string",
+                                     f"{Path(path).stem}/{name}")
+
+
 class TestValidatorChoices(unittest.TestCase):
     def _employee(self, status):
         return {
@@ -482,6 +551,17 @@ class TestFirmShape(unittest.TestCase):
     def test_nobody_is_overdrawn_on_annual_leave(self):
         for row in self._firm(people=64).rows["LeaveBalance"]:
             self.assertGreaterEqual(row["available"], 0, row["code"])
+
+    def test_the_two_step_leave_policy_is_actually_used(self):
+        """It was seeded and unreachable: leave capped at 10 days, policy needed 11."""
+        firm = self._firm(people=64)
+        policies = {r.get("policy") for r in firm.rows["ApprovalRequest"]}
+        self.assertIn("POL-LEAVE-LONG", policies)
+        self.assertIn("POL-LEAVE-ALL", policies)
+
+    def test_some_leave_is_longer_than_the_two_step_threshold(self):
+        durations = [r["duration"] for r in self._firm(people=64).rows["LeaveRequest"]]
+        self.assertGreater(max(durations), demodata.LONG_LEAVE_DAYS)
 
     def test_an_approval_step_is_never_assigned_to_the_requester(self):
         firm = self._firm(people=64)
