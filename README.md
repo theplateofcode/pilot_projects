@@ -80,9 +80,17 @@ tools/
   dvdeploy.py               apply a plan to an environment, idempotently (--dry-run first)
   secgen.py                 security roles → Dataverse payloads + a generated access matrix
   pbigen.py                 dashboard spec → Power BI semantic model, measures and theme
+  appgen.py                 app spec + model → site map, forms and views
+  approvals.py              the shared approval engine, as a tested reference implementation
+  flowgen.py                the engine → Power Automate cloud flows
+  solgen.py                 assemble everything into a Dataverse solution folder
+  sqlgen.py                 resolved model → Azure SQL migrations
+  spgen.py                  resolved model → PnP site template + a SharePoint limits report
   demodata.py               a fictional firm, validated against the model before it is written
 security/phase1-roles.yaml  the three Phase 1 personas, as data
 powerbi/hr-dashboard.yaml   the HR dataset, its 27 measures and its 4 pages, as data
+apps/hr-admin.yaml          the HR app's site map, by lifecycle rather than by table
+data/firms/*.yaml           the five fictional firms, one file each
 tests/                      tests for every tool, plus guards that the repo's own YAML stays valid
 docs/                       plan, strategy, principles, format, adaptation, Phase 1 guide
 docs/data-dictionary/       generated — do not edit by hand
@@ -126,8 +134,34 @@ python tools/pbigen.py --profile hr-starter --prefix wga --strict
 ```
 
 ```bash
+python tools/appgen.py --profile hr-starter --prefix wga --strict
+```
+
+```bash
+python tools/flowgen.py --profile hr-starter --prefix wga --solution WoodgroveHR --strict
+```
+
+```bash
+python tools/solgen.py --profile hr-starter --prefix wga --solution WoodgroveHR --publisher "Woodgrove Advisory"
+```
+
+```bash
 python tools/demodata.py --profile hr-starter --people 64
 ```
+
+## The other platforms
+
+```bash
+python tools/sqlgen.py --profile accounting-firm
+```
+
+```bash
+python tools/spgen.py --profile travel-starter --prefix pfx --site "Northwind Travel"
+```
+
+`spgen` also writes `limits.md`, which lists every place the model asks for
+something SharePoint cannot do — the evidence for the stack decision rather than
+a hunch.
 
 Full walkthrough, including applying the plan to a real environment: the
 [Phase 1 build guide](docs/06-phase1-core-hr.md).

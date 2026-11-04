@@ -66,6 +66,12 @@ jobs:
       - name: Generate the approval flows
         run: python tools/flowgen.py --profile hr-starter --prefix wga --solution WoodgroveHR --strict
 
+      # Last, because it assembles what the generators above produced.
+      - name: Assemble the Dataverse solution
+        run: |
+          python tools/solgen.py --profile hr-starter --prefix wga \
+            --solution WoodgroveHR --publisher "Woodgrove Advisory" --strict
+
       - name: Generate SQL migrations
         run: python tools/sqlgen.py --profile hr-starter --strict
 
