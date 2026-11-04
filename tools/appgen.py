@@ -127,17 +127,33 @@ class Generator:
                     seen.add(table)
                     self.tables.append(table)
 
-        role = self.meta.get("role")
-        if role and self.roles:
-            grants = (self.roles.get(role) or {}).get("effectiveGrants", {})
-            if grants:
-                for table in self.tables:
-                    if table not in grants:
-                        self.warnings.append(
-                            f"'{table}' is on the site map but the '{role}' role cannot "
-                            "read it, so the sub-area will be empty")
-            else:
-                self.notes.append(f"role '{role}' has no grants to check against")
+        # A model-driven app is shared: each sub-area appears for whoever can
+        # read its table. So the check is that *some* role can reach each table,
+        # and the useful report is which roles can and cannot.
+        wanted = self.meta.get("roles") or (
+            [self.meta["role"]] if self.meta.get("role") else [])
+        if wanted and self.roles:
+            unknown = [r for r in wanted if r not in self.roles]
+            for name in unknown:
+                self.errors.append(f"meta.roles names '{name}', which is not a role")
+            known = [r for r in wanted if r in self.roles]
+            grants = {r: (self.roles[r].get("effectiveGrants") or {}) for r in known}
+            for table in self.tables:
+                can = [r for r in known if table in grants[r]]
+                if not can:
+                    self.warnings.append(
+                        f"'{table}' is on the site map but none of "
+                        f"{', '.join(known)} can read it, so the sub-area is empty "
+                        "for every role this app is for")
+                elif len(can) < len(known):
+                    cannot = [r for r in known if r not in can]
+                    self.notes.append(
+                        f"{table} is visible to {', '.join(can)} and empty for "
+                        f"{', '.join(cannot)}")
+        elif wanted:
+            self.notes.append(
+                f"roles {', '.join(wanted)} could not be loaded, so the site map "
+                "was not checked against them")
 
         unplaced = [
             name for name, spec in sorted(self.entities.items())
@@ -514,20 +530,36 @@ class Generator:
         return ET.tostring(element, encoding="unicode", xml_declaration=True)
 
 
-def load_roles(profile: str, prefix: str) -> dict[str, Any]:
-    """The security roles, so the generator can check the app against them."""
-    roles_file = ROOT / "security" / "phase1-roles.yaml"
+def load_roles(profile: str, prefix: str,
+               roles_file: Path | None = None) -> tuple[dict[str, Any], str | None]:
+    """The security roles, so the generator can check the app against them.
+
+    Returns (roles, why_not). The check is optional, but a silent skip is worse
+    than no check: an app pointed at the wrong roles file used to report nothing
+    at all, which looked like a pass.
+    """
+    roles_file = roles_file or ROOT / "security" / "phase1-roles.yaml"
     model_file = BUILD_DIR / f"{profile}.model.json"
-    if not (roles_file.exists() and model_file.exists()):
-        return {}
+    if not roles_file.exists():
+        return {}, f"{roles_file.name} does not exist"
+    if not model_file.exists():
+        return {}, f"{model_file.name} does not exist"
+
+    spec = yaml.safe_load(roles_file.read_text(encoding="utf-8")) or {}
+    declared = (spec.get("meta") or {}).get("profile")
+    if declared and declared != profile:
+        return {}, (f"{roles_file.name} is written for the '{declared}' profile, "
+                    f"not '{profile}' — pass --roles")
     try:
         import secgen
         role_set = secgen.RoleSet(
-            yaml.safe_load(roles_file.read_text(encoding="utf-8")),
-            json.loads(model_file.read_text(encoding="utf-8")), prefix)
-        return role_set.roles
-    except Exception:                      # noqa: BLE001 — the check is optional
-        return {}
+            spec, json.loads(model_file.read_text(encoding="utf-8")), prefix)
+    except Exception as exc:               # noqa: BLE001 — report, do not hide
+        return {}, f"{roles_file.name} could not be read: {exc}"
+    if role_set.errors:
+        return {}, (f"{roles_file.name} has {len(role_set.errors)} error(s); run "
+                    "tools/secgen.py to see them")
+    return role_set.roles, None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -535,6 +567,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--profile", required=True)
     parser.add_argument("--prefix", required=True)
     parser.add_argument("--app", help="app YAML (default: apps/hr-admin.yaml)")
+    parser.add_argument("--roles", help="roles YAML to check the site map against "
+                                        "(default: security/phase1-roles.yaml)")
     parser.add_argument("--model", help="resolved model JSON (default: build/<profile>.model.json)")
     parser.add_argument("--out", help="output directory (default: build/apps/<app>)")
     parser.add_argument("--strict", action="store_true", help="treat warnings as failures")
@@ -556,7 +590,12 @@ def main(argv: list[str] | None = None) -> int:
 
     spec = yaml.safe_load(app_file.read_text(encoding="utf-8"))
     model = json.loads(model_file.read_text(encoding="utf-8"))
-    generator = Generator(spec, model, args.prefix, load_roles(args.profile, args.prefix))
+    roles, why_not = load_roles(args.profile, args.prefix,
+                                Path(args.roles) if args.roles else None)
+    generator = Generator(spec, model, args.prefix, roles)
+    if why_not:
+        generator.notes.append(
+            f"the site map was not checked against any role: {why_not}")
     plan = generator.build()
 
     slug = re.sub(r"[^A-Za-z0-9]+", "-", str(plan["app"] or "app")).strip("-").lower()

@@ -1,0 +1,344 @@
+# Phase 2 security roles — CRM for a law firm.
+#
+# Four personas. The shape differs from Phase 1 in one way that matters: the
+# compliance tables (conflict checks, due diligence, beneficial owners, ethical
+# walls) are restricted and belong to a role that is *not* the one doing the
+# selling. A fee earner who can clear their own conflict check has no conflict
+# check.
+#
+#   python tools/secgen.py --profile law-firm --prefix fab --roles security/crm-roles.yaml
+
+meta:
+  profile: law-firm-crm
+  prefix: fab
+  businessUnitStrategy: >
+    One root business unit for the firm, one child per practice group. Business
+    development sits in the root so parentChild depth reaches every pitch;
+    fee earners sit with their own practice group.
+
+columnProfiles:
+  - name: CRM Sensitive Columns
+    description: Tax numbers, contact details and credential numbers.
+    columns:
+      - Account.taxNumber
+      - Contact.email
+      - Contact.businessPhone
+      - Contact.mobilePhone
+      - Contact.address
+      - Employee.mobilePhone
+      - Lead.email
+      - Lead.phone
+    readFor: [businessDevelopment, compliance]
+    writeFor: [businessDevelopment]
+    readAlso:
+      feeEarner: [Contact.email, Contact.businessPhone]
+
+  - name: CRM Cost Rates
+    description: >
+      What the firm pays a person, as opposed to what it charges for them. The
+      difference is the margin on a matter, so a fee earner sees the bill rate
+      and not the cost rate — otherwise every matter team knows its own
+      profitability and the partner conversation changes.
+    columns:
+      - ProjectMember.costRate
+      - ProjectRole.defaultCostRate
+    readFor: [businessDevelopment]
+    writeFor: [businessDevelopment]
+
+outOfScope:
+  - table: Currency
+    why: The standard transactioncurrency table; read access comes with the basic privileges.
+
+roles:
+  # ---------------------------------------------------------------------------
+  - code: feeEarner
+    name: CRM – Fee Earner
+    description: >
+      A lawyer. Sees the clients and pitches in their own practice group, logs
+      activities, and drafts fee proposals. Cannot clear a conflict check, see
+      due diligence, or look behind an ethical wall.
+    appliesTo: Every lawyer, assigned through a practice-group Entra group.
+    rules:
+      - tables: [Account, Contact, AccountRelationship, ServiceOffering,
+                 SalesPipeline, PipelineStage, LeadSource, Campaign]
+        privileges: [read]
+        depth: organization
+        why: >
+          The client list is firm-wide: a lawyer must be able to see that a
+          prospect is already a client of another practice group, which is the
+          first thing a conflict check asks.
+
+      - tables: [Opportunity, Proposal, ProposalLine, OpportunityTeamMember]
+        privileges: [create, read, write, append, appendTo]
+        depth: businessUnit
+        why: Raise and work a pitch within their own practice group.
+
+      - tables: [Activity]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: businessUnit
+        why: >
+          Log calls and meetings. Business-unit depth rather than user, because
+          a colleague covering a client needs to see the last contact.
+
+      - tables: [Lead]
+        privileges: [create, read, write, append, appendTo]
+        depth: businessUnit
+        why: An inbound enquiry is worked by whoever picks it up.
+
+      - tables: [ConflictCheck]
+        privileges: [create, read]
+        depth: user
+        why: >
+          Raise a check and see the outcome of their own. Not write: a fee earner
+          who can record their own conflict decision has not had one.
+
+      # The matter tables come with proserv-compliance, and a fee earner lives
+      # in them once a pitch is won — which is the hand-off the demo shows.
+      - tables: [Project, ProjectPhase, ProjectMember, Milestone, KeyDate,
+                 WorkItem, WorkItemDependency, RaidItem, Sprint, StatusReport,
+                 MatterParty]
+        privileges: [create, read, write, append, appendTo]
+        depth: businessUnit
+        why: >
+          A won pitch becomes a matter in their own practice group. KeyDate and
+          MatterParty are the legal overlay: a limitation date missed is a claim
+          against the firm.
+
+      - tables: [ProjectType, ProjectRole, ProjectPhaseDefinition, WorkItemType,
+                 TimeCode, HolidayCalendar, Holiday, Language, CostCenter,
+                 TermSet, Term]
+        privileges: [read]
+        depth: organization
+        why: Reference data needed to open a matter or log time.
+
+      - tables: [TimeEntry, Timesheet]
+        privileges: [create, read, write, append, appendTo]
+        depth: user
+        why: >
+          Their own time only. A fee earner who can edit a colleague's time can
+          move revenue between matters.
+
+      - tables: [ResourceRequest]
+        privileges: [create, read]
+        depth: businessUnit
+        why: Ask for a junior on a matter, and see the answer.
+
+      - tables: [DocumentReference, Comment]
+        privileges: [create, read, write, delete]
+        depth: businessUnit
+        why: Attach an engagement letter and comment on a pitch.
+
+      - tables: [ApprovalRequest, ApprovalStep]
+        privileges: [read]
+        depth: user
+        why: Track an approval they raised or that is assigned to them.
+
+    denied:
+      tables: [DueDiligenceCheck, BeneficialOwner, ConflictParty, InformationBarrier,
+               InformationBarrierMember, ConsentRecord]
+      why: >
+        Due diligence and the ethical walls themselves are compliance's to
+        hold. A barrier a fee earner can read is a barrier that tells them what
+        they are not supposed to know.
+
+  # ---------------------------------------------------------------------------
+  - code: businessDevelopment
+    name: CRM – Business Development
+    description: >
+      The BD and marketing team. Owns the pipeline configuration, campaigns and
+      the client master data, and sees pitches across the whole firm to report on
+      them.
+    appliesTo: A small named team.
+    # Deliberately does not inherit Fee Earner. Inheriting looked tidy and was
+    # wrong: it gave the BD team the ability to edit matters and log time, which
+    # are fee-earning acts. BD's job is the pipeline and the client master data,
+    # so its grants are stated in full.
+    rules:
+      - tables: [Account, Contact, AccountRelationship]
+        privileges: [create, read, write, append, appendTo]
+        depth: organization
+        why: BD maintains the client and contact master data.
+
+      - tables: [Opportunity, Proposal, ProposalLine, OpportunityTeamMember, Lead,
+                 Activity]
+        privileges: [create, read, write, append, appendTo]
+        depth: organization
+        why: >
+          Firm-wide, because the pipeline report is firm-wide and a pitch often
+          crosses practice groups.
+
+      - tables: [SalesPipeline, PipelineStage, ServiceOffering, LeadSource,
+                 Campaign, CampaignMember]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: organization
+        why: BD configures the pipelines and runs the campaigns.
+
+      - tables: [AccountRelationship, ProjectType, ProjectRole, Language,
+                 CostCenter, TermSet, Term, Country, LegalEntity, Office, OrgUnit,
+                 Employee]
+        privileges: [read]
+        depth: organization
+        why: >
+          Reference data a pipeline report needs: who owns the client, which
+          practice area, which office.
+
+      - tables: [ConflictCheck]
+        privileges: [create, read]
+        depth: user
+        why: >
+          BD often raises the first check on a prospect. Read only their own, and
+          never write the decision — that is compliance's.
+
+      - tables: [DocumentReference, Comment]
+        privileges: [create, read, write, delete]
+        depth: organization
+        why: Attach a pitch document and comment on a pursuit.
+
+      - tables: [ApprovalRequest, ApprovalStep]
+        privileges: [read]
+        depth: organization
+        why: See where a fee proposal's approval has got to.
+
+      - tables: [ConsentRecord]
+        privileges: [create, read]
+        depth: organization
+        why: >
+          Marketing must be able to check consent before a mailing, and record a
+          new one. Not write or delete: a consent record is evidence, and
+          evidence that can be edited is not evidence.
+
+      - tables: [Project, ProjectMember, StatusReport]
+        privileges: [read]
+        depth: organization
+        why: >
+          Report on what a won pitch turned into, firm-wide. Read only: BD does
+          not run matters.
+
+    denied:
+      tables: [DueDiligenceCheck, BeneficialOwner, ConflictParty, InformationBarrier,
+               InformationBarrierMember, ProjectPhase, Milestone, KeyDate, WorkItem,
+               WorkItemDependency, RaidItem, Sprint, MatterParty, WorkItemType,
+               ProjectPhaseDefinition, TimeCode, TimeEntry, Timesheet,
+               ResourceRequest, HolidayCalendar, Holiday]
+      why: >
+        Selling and clearing the client are different jobs, held by different
+        people — and running a matter is a third. BD reads Project and
+        StatusReport to report on what a pitch became, and touches nothing inside
+        the matter.
+
+  # ---------------------------------------------------------------------------
+  - code: compliance
+    name: CRM – Risk & Compliance
+    description: >
+      The conflicts and AML team. Owns conflict checks, due diligence,
+      beneficial owners and the ethical walls. Reads the pipeline to know what is
+      coming, but does not sell.
+    appliesTo: A named team, reviewed quarterly.
+    rules:
+      - tables: [ConflictCheck, ConflictParty, DueDiligenceCheck, BeneficialOwner,
+                 InformationBarrier, InformationBarrierMember]
+        privileges: [create, read, write, delete, append, appendTo, assign]
+        depth: organization
+        why: >
+          Firm-wide and unconditional: a conflict that spans two practice groups
+          is exactly the conflict that matters, so business-unit depth would
+          defeat the purpose.
+
+      - tables: [Account, Contact, AccountRelationship, Opportunity, Proposal,
+                 Lead]
+        privileges: [read]
+        depth: organization
+        why: >
+          Read the pipeline to see what is coming and what a prospect is already
+          connected to. Read only — compliance clears work, it does not win it.
+
+      - tables: [ConsentRecord]
+        privileges: [read]
+        depth: organization
+        why: Answer a subject access request without being able to alter the evidence.
+
+      - tables: [Employee, OrgUnit, Office, LegalEntity, Country]
+        privileges: [read]
+        depth: organization
+        why: Identify who is inside a barrier and who must be screened from it.
+
+      - tables: [Activity, DocumentReference, Comment]
+        privileges: [create, read, write, append, appendTo]
+        depth: organization
+        why: Record a sanctions screening result and attach the evidence.
+
+      - tables: [Project, ProjectMember, MatterParty, KeyDate]
+        privileges: [read]
+        depth: organization
+        why: >
+          A conflict check is searched against open matters and their parties, so
+          compliance must see every matter in the firm — which is why depth here
+          is organization and not business unit.
+
+      - tables: [ApprovalPolicy, ApprovalPolicyStep]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: organization
+        why: Compliance configures the chain a conflict waiver runs through.
+
+      - tables: [ApprovalRequest, ApprovalStep]
+        privileges: [create, read, write, append, appendTo, assign]
+        depth: organization
+        why: A conflict waiver runs through the shared approval engine.
+
+    denied:
+      tables: [SalesPipeline, PipelineStage, ServiceOffering, Campaign,
+               CampaignMember, ProposalLine, OpportunityTeamMember]
+      why: Pipeline configuration and campaigns are BD's, not compliance's.
+
+  # ---------------------------------------------------------------------------
+  - code: clientPortal
+    name: CRM – Client Portal User
+    description: >
+      An external client contact, signing in to Power Pages. Sees only the
+      records linked to their own Contact row, which Power Pages enforces through
+      table permissions rather than through depth alone.
+    appliesTo: >
+      Contacts invited to the portal. Assigned to the portal's authenticated
+      users web role, never to an internal user.
+    rules:
+      - tables: [Account, Contact]
+        privileges: [read]
+        depth: user
+        why: >
+          Their own organisation and their own contact record. Power Pages
+          narrows this further with a table permission scoped to the signed-in
+          contact; the role is the floor, not the boundary.
+
+      - tables: [Proposal, ProposalLine]
+        privileges: [read]
+        depth: user
+        why: See the fee proposals addressed to them.
+
+      - tables: [DocumentReference]
+        privileges: [read]
+        depth: user
+        why: Download the engagement letter.
+
+      - tables: [Activity]
+        privileges: [create, read]
+        depth: user
+        why: >
+          Raise a question through the portal and see the thread. Not write, so a
+          sent message cannot be edited after the fact.
+
+    denied:
+      tables: [Opportunity, Lead, ConflictCheck, ConflictParty, DueDiligenceCheck,
+               BeneficialOwner, InformationBarrier, InformationBarrierMember,
+               ConsentRecord, Employee, Campaign, CampaignMember, SalesPipeline,
+               PipelineStage, ServiceOffering, AccountRelationship,
+               OpportunityTeamMember, Comment, ApprovalRequest, ApprovalStep,
+               Project, ProjectPhase, ProjectMember, Milestone, KeyDate, WorkItem,
+               WorkItemDependency, RaidItem, Sprint, StatusReport, MatterParty,
+               TimeEntry, Timesheet, ResourceRequest, ProjectType, ProjectRole,
+               ProjectPhaseDefinition, WorkItemType, TimeCode, CostCenter,
+               HolidayCalendar, Holiday, Language, TermSet, Term]
+      why: >
+        Everything internal. A client must never see the pitch behind their
+        proposal, the conflict check that cleared them, or the firm's staff
+        directory. This list is long on purpose: for an external role, the denial
+        list is the security design.

@@ -58,9 +58,28 @@ class Step:
 TARGETS = ("schema", "dataverse", "powerbi", "sql", "sharepoint", "demo")
 
 
+# Which spec belongs to which profile. A spec also declares its own profile, so
+# this only has to say *where to look*; build.py skips one whose declaration
+# disagrees, which is what keeps a Phase 1 spec out of a Phase 2 build.
+SPECS = {
+    "security": {"hr-starter": "phase1-roles.yaml", "law-firm-crm": "crm-roles.yaml"},
+    "apps": {"hr-starter": "hr-admin.yaml", "law-firm-crm": "crm-intake.yaml"},
+    "powerbi": {"hr-starter": "hr-dashboard.yaml", "law-firm-crm": "crm-dashboard.yaml"},
+}
+
+
+def spec_for(kind: str, profile: str) -> Path | None:
+    """The spec file for this profile, if there is one."""
+    name = SPECS[kind].get(profile)
+    return (ROOT / kind / name) if name else None
+
+
 def plan_steps(profile: str, prefix: str, solution: str | None,
                firm: str | None) -> list[Step]:
     solution = solution or f"{prefix.capitalize()}Solution"
+    roles = spec_for("security", profile)
+    app = spec_for("apps", profile)
+    dashboard = spec_for("powerbi", profile)
     return [
         Step("validate", "schema", ["schematool.py", "validate"],
              "the YAML must be valid before anything reads it", strict=False),
@@ -74,13 +93,14 @@ def plan_steps(profile: str, prefix: str, solution: str | None,
               "--solution", solution],
              "tables, columns, relationships and keys", strict=False),
         Step("secgen", "dataverse",
-             ["secgen.py", "--profile", profile, "--prefix", prefix],
-             "security roles and the access matrix",
-             spec=ROOT / "security" / "phase1-roles.yaml"),
+             ["secgen.py", "--profile", profile, "--prefix", prefix]
+             + (["--roles", str(roles)] if roles else []),
+             "security roles and the access matrix", spec=roles),
         Step("appgen", "dataverse",
-             ["appgen.py", "--profile", profile, "--prefix", prefix],
-             "site map, forms and views",
-             spec=ROOT / "apps" / "hr-admin.yaml"),
+             ["appgen.py", "--profile", profile, "--prefix", prefix]
+             + (["--app", str(app)] if app else [])
+             + (["--roles", str(roles)] if roles else []),
+             "site map, forms and views", spec=app),
         Step("flowgen", "dataverse",
              ["flowgen.py", "--profile", profile, "--prefix", prefix,
               "--solution", solution],
@@ -93,9 +113,9 @@ def plan_steps(profile: str, prefix: str, solution: str | None,
              "one solution folder from everything above", strict=False),
 
         Step("pbigen", "powerbi",
-             ["pbigen.py", "--profile", profile, "--prefix", prefix],
-             "the Power BI semantic model, measures and theme",
-             spec=ROOT / "powerbi" / "hr-dashboard.yaml"),
+             ["pbigen.py", "--profile", profile, "--prefix", prefix]
+             + (["--spec", str(dashboard)] if dashboard else []),
+             "the Power BI semantic model, measures and theme", spec=dashboard),
 
         Step("sqlgen", "sql", ["sqlgen.py", "--profile", profile],
              "Azure SQL migrations"),
@@ -127,6 +147,8 @@ def spec_profile(path: Path) -> str | None:
 def skip_reason(step: Step, profile: str) -> str | None:
     """Why this step is not for this profile, if it is not."""
     if step.spec is None:
+        if step.name in ("secgen", "appgen", "pbigen"):
+            return f"no {step.name} spec is mapped to the '{profile}' profile"
         return None
     if not step.spec.exists():
         return f"no {step.spec.relative_to(ROOT)}"

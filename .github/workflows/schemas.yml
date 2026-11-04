@@ -26,9 +26,9 @@ jobs:
       # Every profile must resolve, not just the one Phase 1 uses.
       - name: Export every profile
         run: |
-          for profile in general-firm architecture-firm law-firm accounting-firm \
-                         tech-company travel-starter work-starter crm-starter \
-                         hr-starter intranet-starter; do
+          for profile in general-firm architecture-firm law-firm law-firm-crm \
+                         accounting-firm tech-company travel-starter work-starter \
+                         crm-starter hr-starter intranet-starter; do
             python tools/schematool.py export --profile "$profile"
           done
 
@@ -41,8 +41,17 @@ jobs:
       - name: Build Phase 1
         run: python tools/build.py --profile hr-starter --prefix wga --solution WoodgroveHR
 
-      - name: Check the Dataverse plan applies
-        run: python tools/dvdeploy.py --plan build/dataverse/hr-starter --dry-run
+      # Phase 2, which exercises the same generators against a different module
+      # and a different industry — the whole point of the accelerator.
+      - name: Build Phase 2
+        run: |
+          python tools/build.py --profile law-firm-crm --prefix fab \
+            --solution FabrikamCRM --firm fabrikam
+
+      - name: Check the Dataverse plans apply
+        run: |
+          python tools/dvdeploy.py --plan build/dataverse/hr-starter --dry-run
+          python tools/dvdeploy.py --plan build/dataverse/law-firm-crm --dry-run
 
       # The approval engine serves every pilot, not only HR, so every starter
       # profile is built. secgen, appgen and pbigen are skipped where their spec

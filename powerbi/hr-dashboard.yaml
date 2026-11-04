@@ -143,11 +143,15 @@ measures:
   - name: Voluntary Attrition %
     folder: Headcount
     format: "0.0%"
-    description: The part of attrition the firm could have prevented.
+    description: >
+      The part of attrition the firm could have prevented: people who resigned.
+      Retirement is voluntary but not preventable, and redundancy and dismissal
+      are the firm's own decisions, so none of them belong in this number.
     expression: |
       VAR Window = DATESINPERIOD( 'Date'[Date], MAX( 'Date'[Date] ), -12, MONTH )
       VAR VoluntaryLeavers =
-          CALCULATE( [Leavers], Window, 'Employment'[terminationTypename] = "Voluntary" )
+          CALCULATE( [Leavers], Window,
+                     'Employment'[terminationTypename] = "Resignation" )
       VAR AverageHeadcount =
           AVERAGEX( VALUES( 'Date'[Year Month] ), CALCULATE( [Headcount], Window ) )
       RETURN DIVIDE( VoluntaryLeavers, AverageHeadcount )
@@ -321,22 +325,21 @@ measures:
   - name: Open Requisitions
     folder: Recruitment
     format: "#,0"
-    description: Vacancies approved and advertising.
+    description: >
+      Vacancies approved and advertising. RequisitionStatus has no separate
+      "posted" value — a requisition is Open once approved, and postedOn carries
+      the date it went live.
     expression: |
-      CALCULATE(
-          COUNTROWS( 'JobRequisition' ),
-          'JobRequisition'[statusname] IN { "Open", "Posted" }
-      )
+      CALCULATE( COUNTROWS( 'JobRequisition' ),
+                 'JobRequisition'[statusname] = "Open" )
 
   - name: Openings
     folder: Recruitment
     format: "#,0"
     description: Seats to fill, since one requisition may cover several.
     expression: |
-      CALCULATE(
-          SUM( 'JobRequisition'[openings] ),
-          'JobRequisition'[statusname] IN { "Open", "Posted" }
-      )
+      CALCULATE( SUM( 'JobRequisition'[openings] ),
+                 'JobRequisition'[statusname] = "Open" )
 
   - name: Applications
     folder: Recruitment
@@ -360,11 +363,15 @@ measures:
   - name: Offer Acceptance %
     folder: Recruitment
     format: "0.0%"
-    description: Applications reaching Hired over those that reached Offer.
+    description: >
+      Applications reaching Hired over those that reached Offer. ApplicationStage
+      has no "offer declined" value: a candidate who turns an offer down moves to
+      Withdrawn, and rejectionReason says why — so a declined offer is counted by
+      the Withdrawn stage and not separately.
     expression: |
       VAR Offered =
           CALCULATE( COUNTROWS( 'JobApplication' ),
-                     'JobApplication'[stagename] IN { "Offer", "Hired", "Offer Declined" } )
+                     'JobApplication'[stagename] IN { "Offer", "Hired", "Withdrawn" } )
       VAR Hired =
           CALCULATE( COUNTROWS( 'JobApplication' ), 'JobApplication'[stagename] = "Hired" )
       RETURN DIVIDE( Hired, Offered )

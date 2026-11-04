@@ -84,6 +84,14 @@ PLUMBING_TRAITS = {"base", "owned"}
 LABEL_SUFFIX = "name"
 
 DAX_COLUMN = re.compile(r"'([^']+)'\[([^\]]+)\]")
+# A label column compared against a string literal: 'T'[statusname] = "Draft",
+# or IN { "Draft", "Sent" }. A literal that is not one of the enum's labels
+# returns no rows and no error, which is the worst kind of wrong.
+DAX_LABEL_EQUALS = re.compile(
+    r"'([^']+)'\[(\w+?)name\]\s*(?:=|==)\s*\"([^\"]*)\"")
+DAX_LABEL_IN = re.compile(
+    r"'([^']+)'\[(\w+?)name\]\s*IN\s*\{([^}]*)\}", re.I)
+DAX_STRING = re.compile(r'"([^"]*)"')
 DAX_MEASURE = re.compile(r"(?<!\])\[([^\]]+)\]")
 DAX_FUNCTIONS = re.compile(r"\b([A-Z][A-Z0-9_.]*)\s*\(")
 
@@ -432,6 +440,8 @@ class Builder:
                 self.errors.append(
                     f"{where}: '{table}'[{column}] is not a column of {table} (has: {near}…)")
 
+        self._check_labels(where, expression)
+
         # A [Name] not preceded by ] is a measure reference.
         without_columns = DAX_COLUMN.sub("", expression)
         for name in DAX_MEASURE.findall(without_columns):
@@ -440,6 +450,40 @@ class Builder:
             if name in {"Date"}:                     # a bare table-less reference
                 continue
             self.errors.append(f"{where}: [{name}] is not a measure in this spec")
+
+    def _check_labels(self, where: str, expression: str) -> None:
+        """A literal compared against a label column must be a real enum label.
+
+        `'LeaveRequest'[statusname] = "Submited"` is valid DAX, refreshes without
+        complaint and silently matches nothing. Nothing else in the chain catches
+        it — not the column check, not the refresh, not a review of the YAML — so
+        the literals are compared against the labels the schema defines.
+        """
+        comparisons: list[tuple[str, str, list[str]]] = []
+        for table, attr, literal in DAX_LABEL_EQUALS.findall(expression):
+            comparisons.append((table, attr, [literal]))
+        for table, attr, body in DAX_LABEL_IN.findall(expression):
+            comparisons.append((table, attr, DAX_STRING.findall(body)))
+
+        for table, attr, literals in comparisons:
+            attributes = self.entities.get(table, {}).get("attributes", {})
+            if table not in self.columns or attr not in attributes:
+                continue                   # the column check already reported it
+            spec = attributes[attr]
+            if spec["type"] not in ("choice", "multichoice"):
+                continue                   # a lookup's display name is data, not a set
+            enum_name = spec.get("enum") or spec.get("target")
+            enum = self.enums.get(enum_name) or {}
+            labels = {v.get("label") or split_pascal(v["key"]).title()
+                      for v in enum.get("values", []) if not v.get("deprecated")}
+            if not labels:
+                continue
+            for literal in literals:
+                if literal not in labels:
+                    self.errors.append(
+                        f"{where}: '{table}'[{attr}{LABEL_SUFFIX}] is compared with "
+                        f'"{literal}", which is not a label of {enum_name} '
+                        f"({', '.join(sorted(labels))})")
 
     # -- pages ----------------------------------------------------------------
     def _check_hidden(self) -> None:

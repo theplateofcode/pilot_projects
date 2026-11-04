@@ -1,0 +1,408 @@
+# CRM analytics dashboard — Phase 2.
+#
+#   python tools/pbigen.py --profile law-firm-crm --prefix fab --spec powerbi/crm-dashboard.yaml
+#
+# Dressed for Fabrikam Legal. The intake and risk page sits second, not last,
+# because for a law firm the number that matters is not only the pipeline value
+# but how long a conflict check takes: a pitch cannot start until it clears, so
+# a slow conflicts team is a revenue problem wearing a compliance hat.
+
+meta:
+  name: CRM Analytics
+  description: Pipeline, fee proposals, intake and client risk for a law firm.
+  profile: law-firm-crm
+  prefix: fab
+  storageMode: import
+  environmentParameter: DataverseEnvironment
+  defaultEnvironment: fabrikam-dev.crm11.dynamics.com
+  culture: en-GB
+
+tables:
+  - Account
+  - Contact
+  - AccountRelationship
+  - Lead
+  - LeadSource
+  - Campaign
+  - CampaignMember
+  - Opportunity
+  - OpportunityTeamMember
+  - SalesPipeline
+  - PipelineStage
+  - Proposal
+  - ProposalLine
+  - ServiceOffering
+  - Activity
+  - ConflictCheck
+  - ConflictParty
+  - DueDiligenceCheck
+  - ConsentRecord
+  - Project
+  - ProjectType
+  - Employee
+  - OrgUnit
+  - Office
+
+# BeneficialOwner and InformationBarrier are not in the dataset at all. A
+# dataset is a copy under its own permissions, so a restricted table imported
+# here would be readable by anyone with the report — and an ethical wall that
+# shows up in a Power BI report is not a wall. Risk reporting on those gets its
+# own workspace for the compliance team.
+hide:
+  - Account.taxNumber
+  - Contact.email
+  - Contact.businessPhone
+  - Contact.mobilePhone
+  - Lead.email
+  - Lead.phone
+  - Employee.mobilePhone
+
+dateTable:
+  name: Date
+  from: 2023-01-01
+  yearEndMonth: 4        # Fabrikam's year ends 30 April
+  markAsDateTable: true
+
+measures:
+  # --- Pipeline --------------------------------------------------------------
+  - name: Open Pitches
+    folder: Pipeline
+    format: "#,0"
+    description: Pitches still in play.
+    expression: |
+      CALCULATE( COUNTROWS( 'Opportunity' ), 'Opportunity'[statusname] = "Open" )
+
+  - name: Pipeline Value
+    folder: Pipeline
+    format: "\\£#,0;(\\£#,0)"
+    description: Unweighted value of the open pipeline.
+    expression: |
+      CALCULATE( SUM( 'Opportunity'[estimatedValue] ),
+                 'Opportunity'[statusname] = "Open" )
+
+  - name: Weighted Pipeline
+    folder: Pipeline
+    format: "\\£#,0;(\\£#,0)"
+    description: >
+      Value discounted by each pitch's probability. The number to plan on,
+      because the unweighted pipeline always flatters.
+    expression: |
+      CALCULATE(
+          SUMX( 'Opportunity',
+                'Opportunity'[estimatedValue] * DIVIDE( 'Opportunity'[probability], 100 ) ),
+          'Opportunity'[statusname] = "Open"
+      )
+
+  - name: Won Value
+    folder: Pipeline
+    format: "\\£#,0;(\\£#,0)"
+    description: Value of pitches won in the period, by their actual value.
+    expression: |
+      CALCULATE( SUM( 'Opportunity'[actualValue] ),
+                 'Opportunity'[statusname] = "Won" )
+
+  - name: Pitches Won
+    folder: Pipeline
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'Opportunity' ), 'Opportunity'[statusname] = "Won" )
+    description: Pitches won in the period.
+
+  - name: Pitches Lost
+    folder: Pipeline
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'Opportunity' ),
+                 'Opportunity'[statusname] IN { "Lost", "Abandoned" } )
+    description: Pitches lost or abandoned in the period.
+
+  - name: Win Rate
+    folder: Pipeline
+    format: "0.0%"
+    description: >
+      Won over decided. Abandoned pitches count as losses, because a pitch
+      nobody finished is a pitch that was not won.
+    expression: "DIVIDE( [Pitches Won], [Pitches Won] + [Pitches Lost] )"
+
+  - name: Avg Days to Win
+    folder: Pipeline
+    format: "#,0"
+    description: Mean days from a pitch being created to it closing as won.
+    expression: |
+      AVERAGEX(
+          FILTER( 'Opportunity',
+                  'Opportunity'[statusname] = "Won"
+                      && NOT ISBLANK( 'Opportunity'[actualCloseDate] ) ),
+          DATEDIFF( 'Opportunity'[createdOn], 'Opportunity'[actualCloseDate], DAY )
+      )
+
+  - name: Pitches Past Their Close Date
+    folder: Pipeline
+    format: "#,0"
+    description: >
+      Open pitches whose estimated close date has gone by — the pipeline hygiene
+      number, and the reason a forecast drifts.
+    expression: |
+      CALCULATE(
+          COUNTROWS( 'Opportunity' ),
+          'Opportunity'[statusname] = "Open",
+          FILTER( 'Opportunity', 'Opportunity'[estimatedCloseDate] < TODAY() )
+      )
+
+  # --- Fee proposals ---------------------------------------------------------
+  - name: Proposals Issued
+    folder: Proposals
+    format: "#,0"
+    description: Fee proposals sent in the period.
+    expression: |
+      CALCULATE( COUNTROWS( 'Proposal' ),
+                 'Proposal'[statusname] IN { "Sent", "Accepted", "Rejected", "Expired" } )
+
+  - name: Proposal Value Issued
+    folder: Proposals
+    format: "\\£#,0;(\\£#,0)"
+    expression: |
+      CALCULATE( SUM( 'Proposal'[totalAmount] ),
+                 'Proposal'[statusname] IN { "Sent", "Accepted", "Rejected", "Expired" } )
+    description: Total value of the fee proposals sent.
+
+  - name: Proposal Acceptance Rate
+    folder: Proposals
+    format: "0.0%"
+    description: Accepted over decided, so one still sitting with the client does not count.
+    expression: |
+      VAR Accepted = CALCULATE( COUNTROWS( 'Proposal' ),
+                                'Proposal'[statusname] = "Accepted" )
+      VAR Decided = CALCULATE( COUNTROWS( 'Proposal' ),
+                               'Proposal'[statusname] IN { "Accepted", "Rejected", "Expired" } )
+      RETURN DIVIDE( Accepted, Decided )
+
+  - name: Avg Proposal Value
+    folder: Proposals
+    format: "\\£#,0;(\\£#,0)"
+    expression: "DIVIDE( [Proposal Value Issued], [Proposals Issued] )"
+    description: Mean value of a fee proposal sent.
+
+  - name: Proposals Expiring 14 Days
+    folder: Proposals
+    format: "#,0"
+    description: Sent proposals whose validity runs out within a fortnight.
+    expression: |
+      CALCULATE(
+          COUNTROWS( 'Proposal' ),
+          'Proposal'[statusname] = "Sent",
+          FILTER( 'Proposal',
+                  'Proposal'[validUntil] >= TODAY()
+                      && 'Proposal'[validUntil] <= TODAY() + 14 )
+      )
+
+  # --- Intake and risk -------------------------------------------------------
+  - name: Conflict Checks Pending
+    folder: Intake
+    format: "#,0"
+    description: >
+      Checks not yet decided. Each one is a pitch that cannot start, which is why
+      this sits on the first page and not in a compliance appendix.
+    expression: |
+      CALCULATE( COUNTROWS( 'ConflictCheck' ),
+                 'ConflictCheck'[statusname] IN { "Pending", "Searching" } )
+
+  - name: Avg Conflict Check Hours
+    folder: Intake
+    format: "#,0.0"
+    description: Mean hours from a check being requested to a decision being recorded.
+    expression: |
+      AVERAGEX(
+          FILTER( 'ConflictCheck', NOT ISBLANK( 'ConflictCheck'[decidedOn] ) ),
+          DATEDIFF( 'ConflictCheck'[requestedOn], 'ConflictCheck'[decidedOn], MINUTE ) / 60.0
+      )
+
+  - name: Checks Clear
+    folder: Intake
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'ConflictCheck' ), 'ConflictCheck'[statusname] = "Clear" )
+    description: Checks that came back clear.
+
+  - name: Conflicts Found
+    folder: Intake
+    format: "#,0"
+    description: Checks that found a conflict, whether or not it was waived.
+    expression: |
+      CALCULATE(
+          COUNTROWS( 'ConflictCheck' ),
+          'ConflictCheck'[statusname] IN { "Potential Conflict", "Conflict Waived", "Declined" }
+      )
+
+  - name: Conflict Rate
+    folder: Intake
+    format: "0.0%"
+    description: Share of decided checks that found something.
+    expression: "DIVIDE( [Conflicts Found], [Conflicts Found] + [Checks Clear] )"
+
+  - name: Leads Received
+    folder: Intake
+    format: "#,0"
+    expression: "COUNTROWS( 'Lead' )"
+    description: Enquiries received in the period.
+
+  - name: Lead Conversion Rate
+    folder: Intake
+    format: "0.0%"
+    description: Leads that became a pitch.
+    expression: |
+      DIVIDE(
+          CALCULATE( COUNTROWS( 'Lead' ), 'Lead'[statusname] = "Qualified" ),
+          COUNTROWS( 'Lead' )
+      )
+
+  # --- Client risk -----------------------------------------------------------
+  - name: Due Diligence Overdue
+    folder: Risk
+    format: "#,0"
+    description: >
+      Completed checks past their review date. An expired check means the firm
+      cannot act for that client until it is redone.
+    expression: |
+      CALCULATE(
+          COUNTROWS( 'DueDiligenceCheck' ),
+          FILTER( 'DueDiligenceCheck', 'DueDiligenceCheck'[nextReviewDate] < TODAY() )
+      )
+
+  - name: High Risk Clients
+    folder: Risk
+    format: "#,0"
+    expression: |
+      CALCULATE( DISTINCTCOUNT( 'DueDiligenceCheck'[account] ),
+                 'DueDiligenceCheck'[riskRatingname] = "High" )
+    description: Clients rated high risk at their last check.
+
+  - name: Clients With A PEP
+    folder: Risk
+    format: "#,0"
+    description: Clients with a politically exposed person among their owners.
+    expression: |
+      CALCULATE( DISTINCTCOUNT( 'DueDiligenceCheck'[account] ),
+                 'DueDiligenceCheck'[hasPoliticallyExposedPerson] = TRUE() )
+
+  - name: Due Diligence Complete %
+    folder: Risk
+    format: "0.0%"
+    description: Share of checks finished, of those started.
+    expression: |
+      DIVIDE(
+          CALCULATE( COUNTROWS( 'DueDiligenceCheck' ),
+                     'DueDiligenceCheck'[statusname] = "Completed" ),
+          COUNTROWS( 'DueDiligenceCheck' )
+      )
+
+  - name: Marketing Consent %
+    folder: Risk
+    format: "0.0%"
+    description: >
+      Contacts with a live marketing consent. Under UK GDPR this is the number
+      that says whether a mailing is lawful.
+    expression: |
+      VAR Consented =
+          CALCULATE( DISTINCTCOUNT( 'ConsentRecord'[contact] ),
+                     'ConsentRecord'[granted] = TRUE(),
+                     'ConsentRecord'[purposename] = "Marketing Email" )
+      RETURN DIVIDE( Consented, DISTINCTCOUNT( 'Contact'[id] ) )
+
+pages:
+  - name: Pipeline
+    description: What a practice-group head opens on a Monday.
+    visuals:
+      - { type: statTile, title: Open pitches, measure: Open Pitches }
+      - { type: statTile, title: Pipeline, measure: Pipeline Value }
+      - { type: statTile, title: Weighted, measure: Weighted Pipeline }
+      - { type: statTile, title: Win rate, measure: Win Rate }
+      - { type: statTile, title: Avg days to win, measure: Avg Days to Win }
+      - { type: statTile, title: Past close date, measure: Pitches Past Their Close Date, status: true }
+      - type: funnel
+        title: Pipeline by stage
+        measures: [Pipeline Value]
+        axis: PipelineStage.name
+        note: Ordered stages, so the sequential blue ramp rather than categorical hues.
+      - type: barClustered
+        title: Won and lost by month
+        measures: [Pitches Won, Pitches Lost]
+        axis: Date.Year Month
+        note: Two series of the same unit on one axis — a comparison, not a dual axis.
+      - type: barHorizontal
+        title: Pipeline by practice area
+        measures: [Pipeline Value]
+        axis: OrgUnit.name
+        dataLabels: true
+      - type: line
+        title: Weighted pipeline over time
+        measures: [Weighted Pipeline]
+        axis: Date.Year Month
+
+  - name: Intake and risk
+    description: >
+      Second, not last. A conflict check that takes four days is a pitch that
+      starts four days late.
+    visuals:
+      - { type: statTile, title: Checks pending, measure: Conflict Checks Pending, status: true }
+      - { type: statTile, title: Avg hours to clear, measure: Avg Conflict Check Hours }
+      - { type: statTile, title: Conflict rate, measure: Conflict Rate }
+      - { type: statTile, title: Due diligence overdue, measure: Due Diligence Overdue, status: true }
+      - { type: statTile, title: High risk clients, measure: High Risk Clients, status: true }
+      - { type: statTile, title: Clients with a PEP, measure: Clients With A PEP, status: true }
+      - type: line
+        title: Average hours to clear a conflict check
+        measures: [Avg Conflict Check Hours]
+        axis: Date.Year Month
+      - type: barClustered
+        title: Checks clear against conflicts found
+        measures: [Checks Clear, Conflicts Found]
+        axis: Date.Year Month
+      - type: barHorizontal
+        title: Leads by source
+        measures: [Leads Received]
+        axis: LeadSource.name
+        dataLabels: true
+      - type: table
+        title: Checks waiting
+        columns: [ConflictCheck.title, ConflictCheck.prospectiveClientName,
+                  ConflictCheck.requestedOn, ConflictCheck.statusname]
+        note: Oldest first. The operational list the conflicts team works from.
+
+  - name: Fee proposals
+    description: What is out with clients, and what is about to lapse.
+    visuals:
+      - { type: statTile, title: Issued, measure: Proposals Issued }
+      - { type: statTile, title: Value issued, measure: Proposal Value Issued }
+      - { type: statTile, title: Acceptance rate, measure: Proposal Acceptance Rate }
+      - { type: statTile, title: Expiring in 14 days, measure: Proposals Expiring 14 Days, status: true }
+      - type: line
+        title: Acceptance rate by month
+        measures: [Proposal Acceptance Rate]
+        axis: Date.Year Month
+      - type: barHorizontal
+        title: Proposal value by practice area
+        measures: [Proposal Value Issued]
+        axis: OrgUnit.name
+        dataLabels: true
+      - type: table
+        title: Proposals out with clients
+        columns: [Proposal.name, Account.name, Proposal.totalAmount,
+                  Proposal.issuedOn, Proposal.validUntil, Proposal.statusname]
+
+  - name: Clients
+    description: The client base, and whether the firm may lawfully market to it.
+    visuals:
+      - { type: statTile, title: Marketing consent, measure: Marketing Consent % }
+      - { type: statTile, title: Due diligence complete, measure: Due Diligence Complete % }
+      - { type: statTile, title: Won value, measure: Won Value }
+      - type: barHorizontal
+        title: Won value by client
+        measures: [Won Value]
+        axis: Account.name
+        dataLabels: true
+      - type: barHorizontal
+        title: Pitches won by practice area
+        measures: [Pitches Won]
+        axis: OrgUnit.name
+        dataLabels: true

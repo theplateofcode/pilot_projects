@@ -27,6 +27,15 @@ profiles:
     layers: [core, crm, work, travel, hr, intranet, crm-work, travel-work, hr-work, hr-intranet, intranet-work,
              technology-crm, technology-work, technology-hr]
 
+  law-firm-crm:
+    description: >
+      The CRM pilot for a law firm: intake, conflict checks, pitches, fee proposals
+      and the hand-off to a matter. Narrower than law-firm, which carries all five
+      pilots. proserv-compliance brings the conflict checks and AML, and depends on
+      work as well as crm because a conflict check is searched against a matter —
+      so the matter tables come with it, which is also the story the demo tells.
+    layers: [core, crm, work, crm-work, proserv-compliance, legal-crm, legal-work]
+
   # Single-pilot starters — the smallest deployable sets, e.g. for a SharePoint-only client.
   intranet-starter:
     description: Intranet only, on SharePoint Online.

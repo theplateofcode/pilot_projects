@@ -11,6 +11,12 @@ sys.path.insert(0, str(ROOT / "tools"))
 import pbigen  # noqa: E402
 
 
+# DAX fragments the label tests build on, kept here so the quoting is written
+# once rather than escaped in every test.
+EQ = 'CALCULATE(1, \'T\'[{}] = "{}")'
+IN = "CALCULATE(1, 'T'[{}] IN {{ {} }})"
+
+
 def attr(kind, **extra):
     out = {"type": kind, "required": False, "physical": {"dataverse": "Text (100)"}}
     out.update(extra)
@@ -258,6 +264,74 @@ class TestDaxValidation(unittest.TestCase):
         self.assertTrue(any("Weekday" in e for e in errors))
 
 
+class TestEnumLabelValidation(unittest.TestCase):
+    """A literal compared with a label column that is not a real label.
+
+    This is the worst class of bug a dashboard can carry: valid DAX, a clean
+    refresh, and a tile that can only ever read zero. Adding this check found
+    four such measures in the HR dashboard and one in the CRM dashboard, both of
+    which had already shipped.
+    """
+
+    MODEL = model(
+        {"T": entity({**BASE, "name": attr("string", required=True),
+                      "status": attr("choice", enum="S"),
+                      "employee": attr("lookup", target="Employee")}),
+         "Employee": entity({**BASE, "name": attr("string", required=True)})},
+        enums={"S": {"values": [
+            {"code": 1, "key": "draft", "label": "Draft"},
+            {"code": 2, "key": "pendingApproval"},        # label is derived
+            {"code": 3, "key": "sent", "label": "Sent"},
+            {"code": 9, "key": "old", "label": "Old", "deprecated": True}]}})
+
+    def _errors(self, expression):
+        b = pbigen.Builder(
+            spec(tables=["T", "Employee"],
+                 measures=[{"name": "M", "expression": expression}]),
+            self.MODEL, "wga")
+        return b.errors
+
+    def test_a_correct_label_passes(self):
+        self.assertEqual(self._errors(EQ.format("statusname", "Draft")), [])
+
+    def test_a_misspelt_label_is_an_error(self):
+        errors = self._errors(EQ.format("statusname", "Drafft"))
+        self.assertTrue(any("not a label of S" in e for e in errors))
+
+    def test_a_label_from_another_enum_is_an_error(self):
+        errors = self._errors(EQ.format("statusname", "Approved"))
+        self.assertTrue(any("Approved" in e for e in errors))
+
+    def test_a_derived_label_is_accepted(self):
+        """A value with no explicit label gets its PascalCase split and titled."""
+        self.assertEqual(self._errors(EQ.format("statusname", "Pending Approval")), [])
+
+    def test_the_error_lists_the_labels_that_do_exist(self):
+        errors = self._errors(EQ.format("statusname", "Nope"))
+        self.assertTrue(any("Draft" in e and "Sent" in e for e in errors))
+
+    def test_a_deprecated_label_is_rejected(self):
+        errors = self._errors(EQ.format("statusname", "Old"))
+        self.assertTrue(any("not a label" in e for e in errors))
+
+    def test_an_in_list_checks_every_member(self):
+        errors = self._errors(IN.format("statusname", '"Draft", "Nope", "Sent"'))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("Nope", errors[0])
+
+    def test_an_in_list_of_real_labels_passes(self):
+        self.assertEqual(self._errors(IN.format("statusname", '"Draft", "Sent"')), [])
+
+    def test_a_lookups_display_name_is_not_checked(self):
+        """Employee names are data, not a fixed set, so any literal is fair."""
+        self.assertEqual(self._errors(EQ.format("employeename", "Jane Doe")), [])
+
+    def test_a_column_that_does_not_exist_is_left_to_the_column_check(self):
+        errors = self._errors(EQ.format("ghostname", "Draft"))
+        self.assertTrue(any("not a column" in e for e in errors))
+        self.assertFalse(any("not a label" in e for e in errors))
+
+
 class TestPageValidation(unittest.TestCase):
     MODEL = model({
         "Employee": entity({**BASE, "displayName": attr("string"),
@@ -485,6 +559,10 @@ class TestRealDashboard(unittest.TestCase):
                           "EmployeeCredential.credentialNumber"):
             table, _, column = reference.partition(".")
             self.assertTrue(self.b.columns[table][column]["isHidden"], reference)
+
+    def test_every_label_comparison_uses_a_real_label(self):
+        """Four measures in this dashboard failed this check when it was added."""
+        self.assertEqual([e for e in self.b.errors if "not a label" in e], [])
 
     def test_every_measure_has_a_description_and_a_format(self):
         for measure in self.b.measures:

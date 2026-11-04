@@ -207,11 +207,15 @@ class CrossToolTests(unittest.TestCase):
                 unknown.append(f"{table}: {name}")
         self.assertEqual(sorted(set(unknown)), [])
 
-    def test_the_app_only_shows_tables_the_role_can_read(self):
-        role = self.app.meta.get("role")
-        grants = self.sec.roles[role]["effectiveGrants"]
+    def test_every_table_on_the_site_map_is_readable_by_some_role(self):
+        """A model-driven app is shared, so each sub-area needs one role, not all."""
+        wanted = self.app.meta.get("roles") or (
+            [self.app.meta["role"]] if self.app.meta.get("role") else [])
+        self.assertTrue(wanted, "the app declares no roles")
+        grants = {r: self.sec.roles[r]["effectiveGrants"] for r in wanted}
         for table in self.app.tables:
-            self.assertIn(table, grants, f"{role} cannot read {table}")
+            self.assertTrue(any(table in grants[r] for r in wanted),
+                            f"none of {', '.join(wanted)} can read {table}")
 
     def test_the_app_places_no_table_the_build_will_not_create(self):
         for table in self.app.tables:

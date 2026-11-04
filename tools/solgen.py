@@ -90,6 +90,9 @@ class Builder:
         self.notes: list[str] = []
         self.components: list[dict[str, Any]] = []
         self.files: dict[str, str] = {}      # relative path -> contents
+        # Tables Dataverse already has. A form or view on one is a legitimate
+        # component; the table itself is not created, so it needs no Entity.xml.
+        self.standard: dict[str, str] = {}
 
         self.dataverse = BUILD_DIR / "dataverse" / profile
         self.apps = BUILD_DIR / "apps" / profile
@@ -109,6 +112,7 @@ class Builder:
                              f"--prefix {self.prefix}"):
             return
         plan = json.loads(plan_file.read_text(encoding="utf-8"))
+        self.standard = plan.get("standardTables", {})
 
         self._entities(plan)
         self._option_sets(plan)
@@ -419,10 +423,21 @@ pac solution import --path "$SOLUTION.zip" --publish-changes --force-overwrite
         entity_folders = {path.split("/")[2] for path in self.files
                           if path.startswith("src/Entities/")}
         for folder in sorted(entity_folders):
-            if not any(path == f"src/Entities/{folder}/Entity.xml"
-                       for path in self.files):
-                self.errors.append(
-                    f"src/Entities/{folder} has forms or views but no Entity.xml")
+            if f"src/Entities/{folder}/Entity.xml" in self.files:
+                continue
+            if folder in self.standard:
+                # A form on account or contact: Dataverse has the table already,
+                # and the form is added to it.
+                self.notes.append(
+                    f"{folder} is the standard {self.standard[folder]} table, so its "
+                    "forms and views are added to a table that already exists")
+                self.components.append({
+                    "type": "entity", "id": self.standard[folder],
+                    "behaviour": BEHAVIOUR_INCLUDE_NOTHING,
+                })
+                continue
+            self.errors.append(
+                f"src/Entities/{folder} has forms or views but no Entity.xml")
 
         for required in ("src/Other/Solution.xml", "src/Other/Customizations.xml",
                          "src/[Content_Types].xml"):

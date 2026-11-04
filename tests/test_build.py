@@ -65,12 +65,28 @@ class TestSpecSkipping(unittest.TestCase):
             if path.exists():
                 self.assertEqual(build.spec_profile(path), expected, path.name)
 
-    def test_a_step_is_skipped_when_its_spec_is_for_another_profile(self):
+    def test_a_step_with_no_spec_for_this_profile_is_skipped(self):
+        """Travel has no roles file of its own, so secgen has nothing to run."""
         step = next(s for s in build.plan_steps("travel-starter", "pfx", "S", None)
                     if s.name == "secgen")
         reason = build.skip_reason(step, "travel-starter")
         self.assertIsNotNone(reason)
-        self.assertIn("hr-starter", reason)
+        self.assertIn("travel-starter", reason)
+
+    def test_each_profile_with_a_spec_gets_its_own(self):
+        for profile, expected in (("hr-starter", "phase1-roles.yaml"),
+                                  ("law-firm-crm", "crm-roles.yaml")):
+            step = next(s for s in build.plan_steps(profile, "wga", "S", None)
+                        if s.name == "secgen")
+            self.assertIsNotNone(step.spec, profile)
+            self.assertEqual(step.spec.name, expected)
+            self.assertIsNone(build.skip_reason(step, profile), profile)
+
+    def test_a_specs_own_declaration_still_wins(self):
+        """Belt and braces: the mapping says where to look, the spec says who for."""
+        step = build.Step("secgen", "dataverse", ["secgen.py"], "why",
+                          spec=ROOT / "security" / "phase1-roles.yaml")
+        self.assertIn("hr-starter", build.skip_reason(step, "law-firm-crm") or "")
 
     def test_a_step_is_not_skipped_for_its_own_profile(self):
         step = next(s for s in build.plan_steps("hr-starter", "wga", "S", None)

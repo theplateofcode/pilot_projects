@@ -16,9 +16,10 @@ meta:
   description: >
     The HR team's app. Covers the employee lifecycle from requisition to leaver,
     with pay and personal data behind their own security roles.
-  # Which role each area assumes, so the generator can check an area is not
-  # pointing at a table the role cannot read.
-  role: hrAdmin
+  # The roles that open this app. Each sub-area appears for whoever can read its
+  # table, so the generator checks that some role can reach every table and
+  # reports which ones see an empty area.
+  roles: [hrAdmin]
 
 areas:
   - id: people

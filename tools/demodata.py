@@ -36,6 +36,7 @@ import datetime as dt
 import json
 import os
 import random
+import re
 import sys
 import unicodedata
 from collections import defaultdict
@@ -198,6 +199,50 @@ LAST_NAMES = [
 TOP_RUNG_GROUP = "top-rung"
 
 
+# Fictional client names, built from neutral parts so none reads as a real
+# company. Used for the CRM pilot's accounts, leads and opposing parties.
+CLIENT_PREFIXES = [
+    "Northpoint", "Harrow", "Linden", "Carrick", "Brightwater", "Ashcombe",
+    "Pentland", "Marlowe", "Kestrel", "Oakhaven", "Thornbury", "Varden",
+    "Saltmarsh", "Draycott", "Westerly", "Fenwick", "Ravensholme", "Calderbank",
+    "Quillon", "Embersea", "Highclere", "Larkmead", "Stonebridge", "Vellacourt",
+]
+CLIENT_SUFFIXES = [
+    "Holdings", "Group", "Industries", "Partners", "Capital", "Developments",
+    "Logistics", "Energy", "Foods", "Technologies", "Properties", "Shipping",
+    "Pharma", "Media", "Rail", "Mining", "Insurance", "Retail",
+]
+CLIENT_FORMS = ["plc", "Limited", "LLP", "GmbH", "Inc."]
+
+# What a law firm's pipeline is made of.
+SERVICE_OFFERINGS = [
+    {"code": "LIT_COMM", "name": "Commercial litigation", "model": "timeAndMaterials"},
+    {"code": "LIT_EMP", "name": "Employment tribunal", "model": "cappedFee"},
+    {"code": "COR_MA", "name": "Mergers and acquisitions", "model": "fixedFee"},
+    {"code": "COR_FIN", "name": "Banking and finance", "model": "timeAndMaterials"},
+    {"code": "RE_COMM", "name": "Commercial property", "model": "fixedFee"},
+    {"code": "EMP_ADV", "name": "Employment advisory retainer", "model": "retainer"},
+]
+LEAD_SOURCES = [
+    {"code": "REF_CLIENT", "name": "Client referral", "share": 0.30},
+    {"code": "REF_PROF", "name": "Professional referral", "share": 0.22},
+    {"code": "DIRECTORY", "name": "Legal directory", "share": 0.14},
+    {"code": "EVENT", "name": "Seminar or event", "share": 0.12},
+    {"code": "WEBSITE", "name": "Website enquiry", "share": 0.12},
+    {"code": "PANEL", "name": "Panel or tender", "share": 0.10},
+]
+PIPELINE_STAGES = [
+    {"code": "QUALIFY", "name": "Qualify", "sequence": 1, "probability": 10},
+    {"code": "SCOPE", "name": "Scope and conflicts", "sequence": 2, "probability": 25},
+    {"code": "PROPOSE", "name": "Fee proposal", "sequence": 3, "probability": 50},
+    {"code": "NEGOTIATE", "name": "Negotiation", "sequence": 4, "probability": 75},
+    {"code": "WON", "name": "Won", "sequence": 5, "probability": 100,
+     "closed": True, "won": True},
+    {"code": "LOST", "name": "Lost", "sequence": 6, "probability": 0,
+     "closed": True, "won": False},
+]
+
+
 class DataError(Exception):
     pass
 
@@ -260,19 +305,65 @@ class Firm:
         return candidate
 
     # -- the firm -------------------------------------------------------------
+    def has(self, *tables: str) -> bool:
+        """Whether every table a section needs is in this profile."""
+        return all(table in self.entities for table in tables)
+
+    def optional(self, table: str, **columns: Any) -> dict[str, Any]:
+        """Only the columns this profile's model actually has.
+
+        An industry overlay adds columns to a table the base layer already
+        provides — legal-work puts billingPartner and clientMatterReference on
+        Project — so a generator that writes them unconditionally produces rows
+        that fail on a profile without that overlay.
+        """
+        attributes = self.entities.get(table, {}).get("attributes", {})
+        return {name: value for name, value in columns.items() if name in attributes}
+
     def build(self) -> None:
-        self.build_org()
-        self.build_job_architecture()
-        self.build_people()
-        self.build_assignments()
-        self.build_compensation()
-        self.build_leave()
-        self.build_approvals()
-        self.build_credentials()
-        self.build_training()
-        self.build_performance()
-        self.build_recruitment()
-        self.build_checklists()
+        """Each section runs only if its tables are in the profile.
+
+        The firm is HR-shaped, but a profile need not be: law-firm-crm has no
+        leave, no performance reviews and no onboarding checklists, so those
+        sections are skipped with a note rather than generating rows that point
+        at tables the profile does not have.
+        """
+        sections = (
+            ("organisation", ("LegalEntity", "OrgUnit", "Office"), self.build_org),
+            ("job architecture", ("JobProfile",), self.build_job_architecture),
+            ("people", ("Employee",), self.build_people),
+            ("employment history", ("Employment", "JobAssignment"),
+             self.build_assignments),
+            ("pay", ("Compensation",), self.build_compensation),
+            ("leave", ("LeaveRequest", "LeaveBalance", "LeavePolicy"),
+             self.build_leave),
+            ("approvals", ("ApprovalPolicy", "ApprovalPolicyStep", "ApprovalRequest",
+                           "ApprovalStep"), self.build_approvals),
+            ("credentials", ("CredentialType", "EmployeeCredential"),
+             self.build_credentials),
+            ("training", ("TrainingCourse", "TrainingRecord"), self.build_training),
+            ("performance", ("ReviewCycle", "PerformanceReview"),
+             self.build_performance),
+            ("recruitment", ("JobRequisition", "Candidate", "JobApplication"),
+             self.build_recruitment),
+            ("onboarding checklists", ("ChecklistTemplate", "ChecklistTemplateTask",
+                                       "EmployeeChecklist", "EmployeeChecklistTask"),
+             self.build_checklists),
+            ("clients and pipeline",
+             ("Account", "Contact", "LeadSource", "Lead", "SalesPipeline",
+              "PipelineStage", "ServiceOffering", "Opportunity", "Proposal",
+              "ProposalLine", "Activity"), self.build_pipeline),
+            ("intake compliance", ("ConflictCheck", "DueDiligenceCheck",
+                                   "ConsentRecord"), self.build_intake_compliance),
+            ("matters", ("ProjectType", "Project"), self.build_matters),
+        )
+        for label, tables, builder in sections:
+            missing = [t for t in tables if t not in self.entities]
+            if missing:
+                self.notes.append(
+                    f"no {label}: this profile has no {', '.join(missing)}")
+                continue
+            builder()
 
     def build_org(self) -> None:
         self.add("LegalEntity", {
@@ -662,6 +753,14 @@ class Firm:
             })
 
     def build_approvals(self) -> None:
+        if not self.has("LeaveRequest"):
+            # Without leave there is nothing to raise a run against here; the
+            # pay-change policy below still applies.
+            self.notes.append(
+                "no leave policies or runs: this profile has no LeaveRequest")
+            self._build_pay_approval_policy()
+            return
+
         self.add("ApprovalPolicy", {
             "code": "POL-LEAVE-ALL", "name": "Leave — all requests",
             "appliesToEntity": "wga_leaverequest", "evaluationOrder": 100,
@@ -686,25 +785,7 @@ class Firm:
                 "name": name, "sequence": sequence, "approverType": kind,
                 "completionRule": "anyApprover", "allowDelegation": True, "timeoutHours": 48,
             })
-        self.add("ApprovalPolicy", {
-            "code": "POL-COMP", "name": "Pay change",
-            "appliesToEntity": "wga_compensation", "evaluationOrder": 20,
-            "reminderAfterHours": 48, "escalateAfterHours": 120,
-            "description": "A pay change needs the skip-level manager and a partner.",
-        })
-        for sequence, (name, kind) in enumerate(
-                [("Skip-level manager", "skipLevelManager"), ("Partner", "group")], start=1):
-            self.add("ApprovalPolicyStep", {
-                "code": f"POL-COMP-{sequence}", "policy": "POL-COMP",
-                "name": name, "sequence": sequence, "approverType": kind,
-                # A group step needs a group, or the engine has nobody to ask.
-                # In a real tenant this is an Entra group object id; here it is
-                # the firm's top rung, which the directory resolves by grade.
-                "approverGroupId": (TOP_RUNG_GROUP if kind == "group" else None),
-                "completionRule": "allApprovers" if kind == "group" else "anyApprover",
-                "timeoutHours": 120,
-            })
-
+        self._build_pay_approval_policy()
         # One approval run per decided leave request, so the cycle-time measure
         # has something to read.
         decided = [r for r in self.rows["LeaveRequest"]
@@ -768,6 +849,32 @@ class Firm:
                 "assignedOn": f"{self.iso(assigned)}T09:00:00Z",
                 "dueOn": f"{self.iso(assigned + dt.timedelta(days=3))}T09:00:00Z",
             })
+
+    def _build_pay_approval_policy(self) -> None:
+        """The pay-change chain, which every profile with Compensation needs."""
+        if not self.has("Compensation"):
+            self.notes.append(
+                "no pay-change policy: this profile has no Compensation")
+            return
+        self.add("ApprovalPolicy", {
+            "code": "POL-COMP", "name": "Pay change",
+            "appliesToEntity": "wga_compensation", "evaluationOrder": 20,
+            "reminderAfterHours": 48, "escalateAfterHours": 120,
+            "description": "A pay change needs the skip-level manager and a partner.",
+        })
+        for sequence, (name, kind) in enumerate(
+                [("Skip-level manager", "skipLevelManager"), ("Partner", "group")], start=1):
+            self.add("ApprovalPolicyStep", {
+                "code": f"POL-COMP-{sequence}", "policy": "POL-COMP",
+                "name": name, "sequence": sequence, "approverType": kind,
+                # A group step needs a group, or the engine has nobody to ask.
+                # In a real tenant this is an Entra group object id; here it is
+                # the firm's top rung, which the directory resolves by grade.
+                "approverGroupId": (TOP_RUNG_GROUP if kind == "group" else None),
+                "completionRule": "allApprovers" if kind == "group" else "anyApprover",
+                "timeoutHours": 120,
+            })
+
 
     def build_credentials(self) -> None:
         for credential in self.config.credentials:
@@ -1097,6 +1204,426 @@ class Firm:
                     "completedOn": self.iso(min(due, TODAY)) if complete else None,
                 })
 
+
+    # -- CRM -----------------------------------------------------------------
+    def _client_name(self, used: set[str]) -> str:
+        for _ in range(200):
+            name = (f"{self.random.choice(CLIENT_PREFIXES)} "
+                    f"{self.random.choice(CLIENT_SUFFIXES)} "
+                    f"{self.random.choice(CLIENT_FORMS)}")
+            if name not in used:
+                used.add(name)
+                return name
+        raise DataError("ran out of distinct client names")
+
+    def build_pipeline(self) -> None:
+        """Clients, enquiries, pitches and fee proposals.
+
+        Shaped so the pipeline reads like a real one: most enquiries do not
+        become pitches, most pitches are still open, and the ones that closed
+        split roughly two to one in the firm's favour.
+        """
+        billable = [d for d in self.config.departments
+                    if d["family"] == "DELIVERY"] or self.config.departments
+        partners = [p for p in self.employees if p["_left"] is None]
+        if not partners:
+            self.warnings.append("no active staff, so no pipeline was generated")
+            return
+
+        for source in LEAD_SOURCES:
+            self.add("LeadSource", {"code": source["code"], "name": source["name"]})
+        for offering in SERVICE_OFFERINGS:
+            self.add("ServiceOffering", {
+                "code": offering["code"], "name": offering["name"],
+                "defaultPrice": float(self.random.randrange(250, 750, 25)),
+                "currency": self.config.firm["currency"],
+            })
+        self.add("SalesPipeline", {
+            "code": "NEWBIZ", "name": "New business",
+            "description": "The firm's standard pursuit process.",
+        })
+        for stage in PIPELINE_STAGES:
+            self.add("PipelineStage", {
+                "code": stage["code"], "pipeline": "NEWBIZ", "name": stage["name"],
+                "sequence": stage["sequence"],
+                "defaultProbability": float(stage["probability"]),
+                "isClosed": bool(stage.get("closed")),
+                "isWon": bool(stage.get("won")),
+            })
+
+        # Clients and prospects. Roughly two in three are existing clients.
+        used: set[str] = set()
+        clients = max(12, self.people // 3)
+        self.accounts: list[dict[str, Any]] = []
+        for index in range(1, clients + 1):
+            name = self._client_name(used)
+            is_client = self.random.random() < 0.65
+            code = f"ACC-{index:04d}"
+            owner = self.random.choice(partners)
+            self.add("Account", {
+                "code": code, "name": name,
+                "accountNumber": code,
+                "roles": ["client"] if is_client else ["prospect"],
+                "website": f"https://www.{re.sub(r'[^a-z]', '', name.lower())[:18]}.example",
+                "relationshipManager": owner["employeeNumber"],
+                "currency": self.config.firm["currency"],
+                **self.optional(
+                    "Account",
+                    clientSince=self.iso(self.date_between(
+                        TODAY - dt.timedelta(days=4000), TODAY - dt.timedelta(days=60)))
+                    if is_client else None),
+                "addressCountry": self.config.firm["country"],
+            })
+            self.accounts.append({"code": code, "name": name, "isClient": is_client,
+                                  "owner": owner})
+
+            # One or two named contacts each.
+            for contact_index in range(1, self.random.randint(1, 2) + 1):
+                first = self.random.choice(FIRST_NAMES)
+                last = self.random.choice(LAST_NAMES)
+                self.add("Contact", {
+                    "code": f"{code}-C{contact_index}",
+                    "firstName": first, "lastName": last,
+                    "fullName": f"{first} {last}",
+                    "account": code,
+                    "jobTitle": self.random.choice(
+                        ["General Counsel", "Finance Director", "Chief Executive",
+                         "Company Secretary", "Head of Legal", "Operations Director"]),
+                })
+
+        # Enquiries. Most do not become pitches, which is what a real funnel does.
+        leads = max(20, self.people // 2)
+        for index in range(1, leads + 1):
+            first = self.random.choice(FIRST_NAMES)
+            last = self.random.choice(LAST_NAMES)
+            offering = self.random.choice(SERVICE_OFFERINGS)
+            source = self.pick_weighted(LEAD_SOURCES)
+            received = self.date_between(TODAY - dt.timedelta(days=540), TODAY)
+            status = self.pick_weighted([
+                {"code": "disqualified", "share": 0.34},
+                {"code": "qualified", "share": 0.24},
+                {"code": "nurturing", "share": 0.16},
+                {"code": "contacted", "share": 0.16},
+                {"code": "new", "share": 0.10},
+            ])["code"]
+            self.add("Lead", {
+                "code": f"LEAD-{index:04d}",
+                "topic": f"{offering['name']} enquiry",
+                "firstName": first, "lastName": last,
+                "companyName": self._client_name(used),
+                "jobTitle": "General Counsel",
+                "email": f"{first.lower()}.{last.lower().replace(chr(39), '')}"
+                         f"{index}@example.com",
+                "source": source["code"],
+                "status": status,
+                "estimatedValue": float(self.random.randrange(20000, 400000, 5000)),
+                "currency": self.config.firm["currency"],
+                **self.optional("Lead",
+                                disqualifiedReason="noBudget"
+                                if status == "disqualified" else None),
+            })
+
+        # Pitches. Each belongs to a client or prospect and a practice area.
+        pitches = max(14, self.people // 3)
+        self.opportunities: list[dict[str, Any]] = []
+        for index in range(1, pitches + 1):
+            account = self.random.choice(self.accounts)
+            offering = self.random.choice(SERVICE_OFFERINGS)
+            department = self.random.choice(billable)
+            created = self.date_between(TODAY - dt.timedelta(days=500),
+                                        TODAY - dt.timedelta(days=5))
+            value = self.random.randrange(25000, 900000, 5000)
+
+            # Of the pitches that close, about four in ten are won. A firm
+            # winning most of its competitive pitches is not a firm anyone will
+            # believe, and the win-rate tile is the first thing a partner reads.
+            roll = self.random.random()
+            if roll < 0.46:
+                stage, status = self.random.choice(
+                    ["QUALIFY", "SCOPE", "PROPOSE", "NEGOTIATE"]), "open"
+                closed_on, actual = None, None
+            elif roll < 0.68:
+                stage, status = "WON", "won"
+                closed_on = self.date_between(created + dt.timedelta(days=20),
+                                              min(TODAY, created + dt.timedelta(days=260)))
+                actual = round(value * self.random.uniform(0.82, 1.08), -3)
+            else:
+                stage, status = "LOST", self.random.choice(["lost", "lost", "abandoned"])
+                closed_on = self.date_between(created + dt.timedelta(days=15),
+                                              min(TODAY, created + dt.timedelta(days=200)))
+                actual = None
+
+            probability = next(s["probability"] for s in PIPELINE_STAGES
+                               if s["code"] == stage)
+            code = f"OPP-{index:04d}"
+            self.add("Opportunity", {
+                "code": code,
+                "name": f"{account['name']} — {offering['name']}",
+                "account": account["code"],
+                "pipeline": "NEWBIZ", "stage": stage, "status": status,
+                "probability": float(probability),
+                "estimatedValue": float(value),
+                "actualValue": float(actual) if actual else None,
+                "currency": self.config.firm["currency"],
+                "estimatedCloseDate": self.iso(
+                    closed_on or self.date_between(TODAY - dt.timedelta(days=40),
+                                                   TODAY + dt.timedelta(days=150))),
+                "actualCloseDate": self.iso(closed_on),
+                "isTender": self.random.random() < 0.18,
+                **self.optional("Opportunity",
+                                lossReason="price" if status == "lost" else None),
+            })
+            self.opportunities.append({
+                "code": code, "account": account, "status": status,
+                "department": department, "offering": offering, "created": created,
+                "closedOn": closed_on, "value": value, "actual": actual,
+            })
+
+            # The pursuit team.
+            team = self.random.sample(partners, min(len(partners),
+                                                    self.random.randint(1, 3)))
+            for member_index, member in enumerate(team, start=1):
+                self.add("OpportunityTeamMember", {
+                    "code": f"{code}-T{member_index}",
+                    "name": f"{member['displayName']} on {code}",
+                    "opportunity": code, "employee": member["employeeNumber"],
+                    "role": "lead" if member_index == 1 else "supporting",
+                })
+
+        # A fee proposal for anything that reached the proposal stage or beyond.
+        proposal_index = 0
+        for pitch in self.opportunities:
+            if pitch["status"] == "open" and self.random.random() < 0.5:
+                continue
+            proposal_index += 1
+            issued = self.date_between(
+                pitch["created"] + dt.timedelta(days=10),
+                min(TODAY, pitch["closedOn"] or TODAY))
+            if pitch["status"] == "won":
+                status, accepted = "accepted", pitch["closedOn"]
+            elif pitch["status"] in ("lost", "abandoned"):
+                status, accepted = self.random.choice(["rejected", "expired"]), None
+            else:
+                status, accepted = "sent", None
+            subtotal = float(pitch["value"])
+            discount = round(subtotal * self.random.choice([0, 0, 0.05, 0.1]), -2)
+            tax = round((subtotal - discount) * 0.20, -2)
+            code = f"PROP-{proposal_index:04d}"
+            self.add("Proposal", {
+                "code": code,
+                "name": f"Fee proposal — {pitch['account']['name']}",
+                "proposalNumber": code, "revision": 1,
+                "opportunity": pitch["code"], "account": pitch["account"]["code"],
+                "status": status,
+                "billingModel": pitch["offering"]["model"],
+                "issuedOn": self.iso(issued),
+                "validUntil": self.iso(issued + dt.timedelta(days=30)),
+                "acceptedOn": self.iso(accepted),
+                "subtotal": subtotal, "discountAmount": discount,
+                "taxAmount": tax, "totalAmount": subtotal - discount + tax,
+                "currency": self.config.firm["currency"],
+            })
+            for line_index in range(1, self.random.randint(1, 3) + 1):
+                quantity = float(self.random.randint(10, 240))
+                self.add("ProposalLine", {
+                    "code": f"{code}-L{line_index}",
+                    "proposal": code, "lineNumber": line_index,
+                    "description": f"{pitch['offering']['name']} — phase {line_index}",
+                    "quantity": quantity,
+                    "unitPrice": round(subtotal / (quantity * line_index), 2),
+                    "currency": self.config.firm["currency"],
+                    "service": pitch["offering"]["code"],
+                })
+
+        # Logged contact, so the activity timeline is not empty.
+        activity_index = 0
+        for pitch in self.opportunities:
+            for _ in range(self.random.randint(1, 4)):
+                activity_index += 1
+                kind = self.pick_weighted([
+                    {"code": "email", "share": 0.42}, {"code": "call", "share": 0.28},
+                    {"code": "meeting", "share": 0.22}, {"code": "note", "share": 0.08},
+                ])["code"]
+                when = self.date_between(pitch["created"],
+                                         min(TODAY, pitch["closedOn"] or TODAY))
+                self.add("Activity", {
+                    "code": f"ACT-{activity_index:05d}",
+                    "subject": f"{kind.title()} about {pitch['account']['name']}",
+                    "activityType": kind,
+                    "regarding": {"table": "Opportunity", "key": pitch["code"]},
+                    "status": "completed",
+                    "direction": self.random.choice(["inbound", "outbound"]),
+                    "startOn": f"{self.iso(when)}T10:00:00Z",
+                    "completedOn": f"{self.iso(when)}T10:30:00Z",
+                })
+
+    def build_intake_compliance(self) -> None:
+        """Conflict checks, client due diligence and marketing consent.
+
+        The numbers are deliberately uncomfortable: about one check in five
+        finds something, a few are still waiting past their turnaround, and some
+        due diligence is overdue for review — because a compliance dashboard
+        where everything is green demonstrates nothing.
+        """
+        accounts = getattr(self, "accounts", [])
+        opportunities = getattr(self, "opportunities", [])
+        partners = [p for p in self.employees if p["_left"] is None]
+        if not (accounts and partners):
+            self.warnings.append("no clients, so no intake compliance was generated")
+            return
+
+        for index, pitch in enumerate(opportunities, start=1):
+            requested = dt.datetime.combine(pitch["created"], dt.time(9, 0))
+            # About one decided check in five finds something. Higher than that
+            # and the conflicts team looks broken; lower and the tile is
+            # decoration.
+            roll = self.random.random()
+            if roll < 0.10:
+                status, decided = self.random.choice(["pending", "searching"]), None
+            elif roll < 0.82:
+                status = "clear"
+                decided = requested + dt.timedelta(
+                    hours=self.random.choice([2, 4, 6, 9, 14, 22, 30, 48]))
+            elif roll < 0.94:
+                status = "conflictWaived"
+                decided = requested + dt.timedelta(hours=self.random.randint(24, 96))
+            else:
+                status = self.random.choice(["potentialConflict", "declined"])
+                decided = requested + dt.timedelta(hours=self.random.randint(12, 72))
+
+            self.add("ConflictCheck", {
+                "code": f"CC-{index:05d}",
+                "title": f"Conflict check — {pitch['account']['name']}",
+                "requestedBy": self.random.choice(partners)["employeeNumber"],
+                "requestedOn": requested.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "prospectiveClient": pitch["account"]["code"],
+                "prospectiveClientName": pitch["account"]["name"],
+                "opportunity": pitch["code"],
+                "matterDescription": f"{pitch['offering']['name']} for "
+                                     f"{pitch['account']['name']}.",
+                "status": status,
+                "reviewedBy": self.random.choice(partners)["employeeNumber"]
+                if decided else None,
+                "decidedOn": decided.strftime("%Y-%m-%dT%H:%M:%SZ") if decided else None,
+            })
+
+        self._ensure_conflicts_found()
+
+        for index, account in enumerate(accounts, start=1):
+            if not account["isClient"]:
+                continue
+            level = self.pick_weighted([
+                {"code": "standard", "share": 0.62},
+                {"code": "simplified", "share": 0.22},
+                {"code": "enhanced", "share": 0.16},
+            ])["code"]
+            risk = ("high" if level == "enhanced" else
+                    self.pick_weighted([{"code": "low", "share": 0.62},
+                                        {"code": "medium", "share": 0.38}])["code"])
+            completed = self.date_between(TODAY - dt.timedelta(days=900),
+                                          TODAY - dt.timedelta(days=20))
+            months = {"simplified": 36, "standard": 24, "enhanced": 12}[level]
+            review = completed + dt.timedelta(days=int(months * 30.4))
+            self.add("DueDiligenceCheck", {
+                "code": f"DD-{index:05d}",
+                "name": f"Client due diligence — {account['name']}",
+                "account": account["code"], "level": level, "riskRating": risk,
+                "status": self.pick_weighted([
+                    {"code": "completed", "share": 0.80},
+                    {"code": "inProgress", "share": 0.11},
+                    {"code": "awaitingDocuments", "share": 0.09},
+                ])["code"],
+                "performedBy": self.random.choice(partners)["employeeNumber"],
+                "completedOn": self.iso(completed),
+                "nextReviewDate": self.iso(review),
+                "hasPoliticallyExposedPerson": level == "enhanced"
+                and self.random.random() < 0.45,
+                "sanctionsScreenedOn": f"{self.iso(completed)}T11:00:00Z",
+                "sanctionsResult": self.pick_weighted([
+                    {"code": "noMatch", "share": 0.88},
+                    {"code": "falsePositive", "share": 0.10},
+                    {"code": "possibleMatch", "share": 0.02},
+                ])["code"],
+            })
+
+        contacts = [r for r in self.rows.get("Contact", [])]
+        for index, contact in enumerate(contacts, start=1):
+            if self.random.random() > 0.72:
+                continue                    # not everyone has been asked
+            captured = self.date_between(TODAY - dt.timedelta(days=700), TODAY)
+            self.add("ConsentRecord", {
+                "code": f"CONS-{index:05d}",
+                "name": f"Marketing consent — {contact['fullName']}",
+                "contact": contact["code"],
+                "purpose": "marketingEmail",
+                "granted": self.random.random() < 0.78,
+                "capturedOn": f"{self.iso(captured)}T09:00:00Z",
+                "method": self.random.choice(["webForm", "email", "paperForm"]),
+                "source": "Fabrikam website",
+            })
+
+    def _ensure_conflicts_found(self) -> None:
+        """At least a couple of checks must find something.
+
+        The conflict rate is random, and on a firm this size a draw can easily
+        find nothing at all — which leaves the conflict-rate tile reading zero
+        and demonstrates the opposite of what it is for.
+        """
+        rows = self.rows.get("ConflictCheck", [])
+        found = [r for r in rows
+                 if r["status"] in ("potentialConflict", "conflictWaived", "declined")]
+        wanted = 2
+        if len(found) >= wanted:
+            return
+        spare = [r for r in rows if r["status"] == "clear"]
+        self.random.shuffle(spare)
+        for row in spare[:wanted - len(found)]:
+            row["status"] = self.random.choice(["potentialConflict", "conflictWaived"])
+        self.notes.append(
+            f"the draw found {len(found)} conflict(s); raised {len(spare[:wanted - len(found)])} "
+            f"to reach the floor of {wanted}, so the conflict-rate tile is not zero")
+
+    def build_matters(self) -> None:
+        """A matter for each won pitch — the hand-off the pilot demonstrates."""
+        opportunities = [o for o in getattr(self, "opportunities", [])
+                         if o["status"] == "won"]
+        partners = [p for p in self.employees if p["_left"] is None]
+        if not (opportunities and partners):
+            self.notes.append("no won pitches, so no matters were created")
+            return
+
+        for offering in SERVICE_OFFERINGS:
+            self.add("ProjectType", {
+                "code": offering["code"], "name": offering["name"],
+                "defaultBillingModel": offering["model"],
+                "requiresClient": True,
+            })
+
+        for index, pitch in enumerate(opportunities, start=1):
+            opened = pitch["closedOn"] or TODAY
+            self.add("Project", {
+                "code": f"MAT-{index:05d}",
+                "name": f"{pitch['account']['name']} — {pitch['offering']['name']}",
+                "projectType": pitch["offering"]["code"],
+                "client": pitch["account"]["code"],
+                "projectManager": self.random.choice(partners)["employeeNumber"],
+                "orgUnit": pitch["department"]["code"],
+                "billingModel": pitch["offering"]["model"],
+                "currency": self.config.firm["currency"],
+                "status": self.pick_weighted([
+                    {"code": "active", "share": 0.62},
+                    {"code": "completed", "share": 0.28},
+                    {"code": "onHold", "share": 0.10},
+                ])["code"],
+                "startDate": self.iso(opened),
+                "contractValue": float(pitch["actual"] or pitch["value"]),
+                "originatingOpportunity": pitch["code"],
+                # legal-work adds these; a profile without that overlay has not.
+                **self.optional(
+                    "Project",
+                    billingPartner=self.random.choice(partners)["employeeNumber"],
+                    clientMatterReference=f"{pitch['account']['code']}/{index:03d}"),
+            })
 
 # --- validation --------------------------------------------------------------
 class Validator:

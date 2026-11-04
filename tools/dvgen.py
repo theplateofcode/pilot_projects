@@ -739,6 +739,13 @@ class Generator:
             "columns": columns,
             "relationships": rels,
             "alternateKeys": alt_keys,
+            # Tables Dataverse already provides, so a later tool knows a form on
+            # one of them does not need the table created.
+            "standardTables": {
+                name: logical_name
+                for name, logical_name in self.table_names.items()
+                if name not in self.created
+            },
             "manualSteps": self.manual,
             "nativeMappings": self.native_mappings,
             "warnings": self.warnings,

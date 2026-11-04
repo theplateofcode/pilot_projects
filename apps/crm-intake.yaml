@@ -1,0 +1,153 @@
+# The CRM intake app — a model-driven app for a law firm's business development
+# and risk teams.
+#
+# The site map follows the intake sequence, because that is the thing the pilot
+# is demonstrating: an enquiry arrives, it is checked for conflicts, it becomes a
+# pitch, the pitch becomes a fee proposal, the proposal becomes a matter. An app
+# grouped by table hides that sequence.
+#
+#   python tools/appgen.py --profile law-firm-crm --prefix fab --app apps/crm-intake.yaml
+
+meta:
+  name: Client Intake
+  profile: law-firm-crm
+  prefix: fab
+  description: >
+    Fabrikam Legal's intake and pipeline app. Enquiry to conflict check to pitch
+    to fee proposal to matter, with the compliance area held by the risk team.
+  # A model-driven app is shared. These are the three internal roles that open
+  # it; each sub-area appears for whoever can read its table, which is why the
+  # compliance area is empty for a fee earner rather than hidden by the app.
+  # clientPortal is deliberately absent: it is a Power Pages web role and never
+  # opens this app.
+  roles: [feeEarner, businessDevelopment, compliance]
+
+areas:
+  - id: clients
+    name: Clients
+    icon: Contact
+    groups:
+      - id: directory
+        name: Client directory
+        tables: [Account, Contact, AccountRelationship]
+        note: >
+          Account reads as Client and Opportunity as Pitch throughout, from the
+          legal overlay's terminology — the app says nothing about it, which is
+          the point of putting terminology in the schema.
+
+  - id: pipeline
+    name: Pipeline
+    icon: Opportunity
+    groups:
+      - id: intake
+        name: Intake
+        tables: [Lead, ConflictCheck]
+        note: >
+          Lead and ConflictCheck together and first, because a lawyer should not
+          be able to work an enquiry they have not had checked.
+      - id: pursuit
+        name: Pursuit
+        tables: [Opportunity, OpportunityTeamMember, Activity]
+      - id: proposals
+        name: Fee proposals
+        tables: [Proposal, ProposalLine]
+
+  - id: compliance
+    name: Risk & Compliance
+    icon: Shield
+    groups:
+      - id: conflicts
+        name: Conflicts
+        tables: [ConflictParty]
+      - id: aml
+        name: Client due diligence
+        tables: [DueDiligenceCheck, BeneficialOwner]
+      - id: barriers
+        name: Ethical walls
+        tables: [InformationBarrier, InformationBarrierMember]
+        note: >
+          Restricted. A fee earner with this app sees the area empty, because
+          the role grants nothing here — and a barrier they could read would
+          tell them what they are not supposed to know.
+      - id: privacy
+        name: Consent
+        tables: [ConsentRecord]
+
+  - id: matters
+    name: Matters
+    icon: Folder
+    groups:
+      - id: matterlist
+        name: Matters
+        tables: [Project, ProjectPhase, ProjectMember]
+        note: Where a won pitch lands. The hand-off is the pilot's exit criterion.
+      - id: keydates
+        name: Key dates & parties
+        tables: [KeyDate, MatterParty]
+
+  - id: campaigns
+    name: Marketing
+    icon: Megaphone
+    groups:
+      - id: campaignlist
+        name: Campaigns
+        tables: [Campaign, CampaignMember]
+
+  - id: setup
+    name: Setup
+    icon: Settings
+    groups:
+      - id: pipelines
+        name: Pipelines
+        tables: [SalesPipeline, PipelineStage, ServiceOffering, LeadSource]
+      - id: reference
+        name: Reference data
+        tables: [ProjectType, ProjectRole, Country, Language, TermSet, Term]
+      - id: approvals
+        name: Approvals
+        tables: [ApprovalPolicy, ApprovalPolicyStep, ApprovalRequest, ApprovalStep]
+
+forms:
+  Lead:
+    order: [topic, firstName, lastName, companyName, jobTitle, email, phone,
+            source, campaign, referredBy, status]
+  ConflictCheck:
+    order: [title, prospectiveClient, prospectiveClientName, opportunity, project,
+            matterDescription, requestedBy, requestedOn, status, reviewedBy,
+            decidedOn]
+    note: >
+      requestedBy and requestedOn come before the decision fields, so the form
+      reads as a request first and a decision second. The decision fields are
+      write-protected for everyone but the compliance role.
+  Opportunity:
+    order: [name, account, primaryContact, pipeline, stage, status, probability,
+            estimatedValue, estimatedCloseDate, isTender, tenderDeadline,
+            nextStepDate]
+  Proposal:
+    order: [name, opportunity, account, contact, status, billingModel, issuedOn,
+            validUntil, subtotal, discountAmount, taxAmount, totalAmount,
+            acceptedOn]
+  DueDiligenceCheck:
+    order: [name, account, level, riskRating, status, performedBy, completedOn,
+            nextReviewDate, sourceOfFunds, hasPoliticallyExposedPerson,
+            sanctionsScreenedOn, sanctionsResult]
+
+views:
+  Lead:
+    columns: [topic, companyName, lastName, source, status, createdOn]
+    sort: [[createdOn, desc]]
+    note: Newest first — an enquiry going cold is the thing to notice.
+  ConflictCheck:
+    columns: [title, prospectiveClientName, requestedBy, requestedOn, status]
+    sort: [[requestedOn, asc]]
+    note: Oldest first, because a check waiting is a pitch that cannot start.
+  Opportunity:
+    columns: [name, account, stage, status, estimatedValue, estimatedCloseDate]
+    sort: [[estimatedCloseDate, asc]]
+  Proposal:
+    columns: [name, account, status, totalAmount, issuedOn, validUntil]
+    sort: [[issuedOn, desc]]
+  DueDiligenceCheck:
+    columns: [name, account, level, riskRating, status, nextReviewDate]
+    sort: [[nextReviewDate, asc]]
+    note: Soonest review first — an expired check is a client the firm cannot act for.

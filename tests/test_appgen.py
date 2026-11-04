@@ -392,14 +392,19 @@ class TestTheRealApp(unittest.TestCase):
         cls.spec = yaml.safe_load(
             (ROOT / "apps" / "hr-admin.yaml").read_text(encoding="utf-8"))
         cls.model = json.loads(MODEL_FILE.read_text(encoding="utf-8"))
-        cls.generator = appgen.Generator(
-            cls.spec, cls.model, PREFIX,
-            appgen.load_roles("hr-starter", PREFIX))
+        roles, why_not = appgen.load_roles("hr-starter", PREFIX)
+        cls.why_not = why_not
+        cls.generator = appgen.Generator(cls.spec, cls.model, PREFIX, roles)
         cls.plan = cls.generator.build()
 
     def test_no_errors_and_no_warnings(self):
         self.assertEqual(self.plan["errors"], [])
         self.assertEqual(self.plan["warnings"], [])
+
+    def test_the_roles_were_actually_loaded(self):
+        """A silent skip looks exactly like a pass, so assert the check ran."""
+        self.assertIsNone(self.why_not)
+        self.assertTrue(self.generator.roles)
 
     def test_every_table_gets_a_form_and_a_view(self):
         self.assertEqual(set(self.plan["forms"]), set(self.generator.tables))
