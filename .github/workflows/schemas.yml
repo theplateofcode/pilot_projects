@@ -12,7 +12,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: pip install -r tools/requirements.txt
+      - run: pip install -r tools/requirements-dev.txt
 
       - name: Validate schemas
         run: python tools/schematool.py validate
@@ -51,7 +51,13 @@ jobs:
       - name: Generate demo data
         run: python tools/demodata.py --profile hr-starter --people 64 --strict
 
+      - name: Generate SQL migrations
+        run: python tools/sqlgen.py --profile hr-starter --strict
+
       # A full-profile run catches anything an overlay adds that the starter
       # profile does not exercise.
       - name: Generate the full accounting-firm plan
         run: python tools/dvgen.py --profile accounting-firm --prefix wga
+
+      - name: Generate the full accounting-firm SQL
+        run: python tools/sqlgen.py --profile accounting-firm --strict

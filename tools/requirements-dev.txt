@@ -1,0 +1,5 @@
+# Test-only dependencies.
+-r requirements.txt
+# Parses and transpiles the generated T-SQL so tests/test_sqlgen.py can execute
+# it against SQLite — a real parser proves the DDL is real.
+sqlglot>=27.0
