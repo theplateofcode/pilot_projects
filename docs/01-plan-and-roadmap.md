@@ -3,6 +3,7 @@
 This is the master plan for the pilot projects. It explains what we are building, how the pieces fit,
 which stack each pilot showcases, the order to build them in and what "done" means for each one.
 
+- Phase 1, in detail → [06-phase1-core-hr.md](06-phase1-core-hr.md)
 - Schema rules → [03-schema-principles.md](03-schema-principles.md)
 - Stack choices → [02-tech-stack-strategy.md](02-tech-stack-strategy.md)
 - Adapting to a client or industry → [05-industry-adaptation.md](05-industry-adaptation.md)
@@ -47,8 +48,11 @@ flowchart LR
     G3 --> A3["React / .NET / Node<br/>apps & APIs"]
 ```
 
-Solid arrows exist today; dashed arrows are the generators planned for Phase 7 (until then, build from the
-data dictionary by hand).
+Solid arrows exist today. The **Dataverse generator now exists** (`tools/dvgen.py` →
+`tools/dvdeploy.py`), built during Phase 1 rather than waiting for Phase 7: doing core by hand needed a
+tenant, and generating it needed only the resolved model. The SharePoint and SQL generators are still
+Phase 7. Alongside them, `tools/secgen.py` generates security roles and `tools/pbigen.py` the Power BI
+semantic model, both from the same resolved model.
 
 The model is **layered**. Each layer only adds to the ones below it:
 
@@ -121,7 +125,7 @@ Effort below is a rough guide for one person working full time; scale it to your
 | Phase | Effort | Deliverables | Exit criteria |
 |---|---|---|---|
 | **0. Foundation** | 1–2 weeks | Schema v1 reviewed and tagged; publisher prefix chosen; dev tenant and Dev/Test environments; repo folders for solutions, SharePoint and apps; demo-data plan | `validate` and `docs --check` green in CI; environment access working; open decisions (§9) answered |
-| **1. Core + HR** | 3–4 weeks | Core tables and approval engine in Dataverse; HR model-driven app; employee self-service canvas app (leave, profile, training); onboarding flow; HR Power BI page | Three personas (employee, manager, HR) with security roles; leave request approved end-to-end; compensation invisible to non-HR |
+| **1. Core + HR** *(in progress)* | 3–4 weeks | Core tables and approval engine in Dataverse; HR model-driven app; employee self-service canvas app (leave, profile, training); onboarding flow; HR Power BI page | Three personas (employee, manager, HR) with security roles; leave request approved end-to-end; compensation invisible to non-HR |
 | **2. CRM** | 3–4 weeks | CRM model-driven app; pipeline and proposal flow; Power Pages client portal; conflict-check process (law overlay) | Lead → opportunity → won → project hand-off works; portal user sees only their own records |
 | **3. Work Management** | 4–6 weeks | Project/backlog/time app on the chosen stack; timesheet approval; resourcing view; status report; utilisation report | 10k+ demo time entries perform well; project created from a won opportunity |
 | **4. Travel Portal** | 2–3 weeks | SharePoint lists provisioned from template; canvas app (request, approve, expenses with receipt photo); policy checks; duty-of-care view | Trip request → approval → booking → expense claim → paid, with an out-of-policy example |
@@ -176,15 +180,39 @@ Use Microsoft's well-known fictional brands so screenshots never show a real fir
 6. **Entity names** — review the data dictionary now; renaming a table after it is built is expensive on
    every platform.
 
-## 10. Next ten steps
+## 10. Phase 1 progress
+
+Generated from the schema and checked in CI:
+
+| Done | |
+|---|---|
+| Dataverse build | 50 tables, 434 columns, 133 relationships, 28 alternate keys, 45 choice sets — 640 components, no manual metadata steps |
+| Security roles | the three personas, with a generated access matrix and the compensation boundary asserted by tests |
+| Power BI | 25-table semantic model, 27 measures, theme; every DAX reference checked against the generated columns |
+| Demo data | Woodgrove Advisory, 64 staff, ~1,800 rows, validated against the model |
+| Access checker | `tools/ppcheck.py`, which reports exactly what is missing before anything is applied |
+
+| Still to do | Needs |
+|---|---|
+| Apply the plan to a Dev environment | a tenant, and `PP_TENANT_ID` / `PP_CLIENT_ID` / `PP_CLIENT_SECRET` |
+| The approval flow | Power Automate, built once against the generated tables |
+| HR model-driven app and the self-service canvas app | the maker portal |
+| Onboarding flow | Power Automate |
+| The report canvas | Power BI Desktop, from the generated page spec |
+| Demo video and case study | the above, working |
+
+The full build guide is [06-phase1-core-hr.md](06-phase1-core-hr.md).
+
+## 11. Next ten steps
 
 1. Read the [data dictionary](data-dictionary/README.md) module by module and note anything to rename,
    add or drop. Change the YAML, run `python tools/schematool.py validate && python tools/schematool.py docs`.
 2. Answer the decisions in §9 and record them in this file.
 3. Tag the schema `v1.0.0` once reviewed.
 4. Set up the tenant and the Dev/Test/Demo environments; create the publisher.
-5. Build the `core` tables in Dataverse by hand from the dictionary (or start the Dataverse generator
-   from `export` JSON — doing core by hand first teaches what the generator must produce).
+5. ~~Build the `core` tables in Dataverse by hand from the dictionary~~ — **done differently**: the
+   Dataverse generator came first, because building by hand needed a tenant and generating needed only
+   the resolved model. Run `tools/dvgen.py` then `tools/dvdeploy.py`.
 6. Build the shared approval flow (ApprovalPolicy → ApprovalRequest → ApprovalStep) once; every pilot reuses it.
 7. Build HR (Phase 1) against the `accounting-firm` profile; load its seed data.
 8. Write the demo-data generator (fictional people, clients, projects) driven by the resolved model.

@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -880,4 +881,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except BrokenPipeError:
+        # Output was piped into something that closed early, e.g. `| head`.
+        os._exit(0)

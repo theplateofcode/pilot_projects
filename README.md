@@ -6,8 +6,10 @@ HR** — built on one canonical, platform-neutral data model that can be deploye
 (pro-code apps), and adapted to **architecture, law, accounting, technology or any other firm** through
 overlay layers instead of copies.
 
-> **Status:** schema v1.0.0 designed and validated. Next step: review it, then build the first pilot — see
-> the [plan and roadmap](docs/01-plan-and-roadmap.md).
+> **Status:** schema v1.0.0 validated. **Phase 1 (core + HR) is under way** — the Dataverse build, the
+> three security roles, the HR Power BI model and the demo firm are all generated from the schema and
+> checked in CI; what remains is a tenant to apply them to, plus the apps and flows. See the
+> [Phase 1 build guide](docs/06-phase1-core-hr.md) and the [plan and roadmap](docs/01-plan-and-roadmap.md).
 
 ## What's here
 
@@ -18,6 +20,7 @@ overlay layers instead of copies.
 | [**Schema principles**](docs/03-schema-principles.md) | The rules that keep the schemas futureproof |
 | [**Schema format**](docs/04-schema-format.md) | How to read and write the YAML; what the validator checks |
 | [**Industry adaptation**](docs/05-industry-adaptation.md) | Same concept, different words; what each overlay adds; client adaptation playbook |
+| [**Phase 1 build guide**](docs/06-phase1-core-hr.md) | Build order, security design, the approval engine, the leave walkthrough, the dashboard, demo data |
 | [**Data dictionary**](docs/data-dictionary/README.md) | Every table and column with Dataverse / SharePoint / SQL mappings and ER diagrams (generated) |
 
 ## The model at a glance
@@ -70,10 +73,20 @@ schemas/
   bridges.yaml              cross-module links
   industries/               industry overlays (one YAML document per overlay layer)
   profiles.yaml             which layers each kind of client gets
-tools/schematool.py         validate · generate docs · export a resolved model
-tests/                      tests for the tool and a guard that the repo schemas stay valid
-docs/                       plan, strategy, principles, format, adaptation playbook
+tools/
+  schematool.py             validate · generate docs · export a resolved model
+  ppcheck.py                test the service-principal login; list environments and workspaces
+  dvgen.py                  resolved model → Dataverse metadata + an ordered deployment plan
+  dvdeploy.py               apply a plan to an environment, idempotently (--dry-run first)
+  secgen.py                 security roles → Dataverse payloads + a generated access matrix
+  pbigen.py                 dashboard spec → Power BI semantic model, measures and theme
+  demodata.py               a fictional firm, validated against the model before it is written
+security/phase1-roles.yaml  the three Phase 1 personas, as data
+powerbi/hr-dashboard.yaml   the HR dataset, its 27 measures and its 4 pages, as data
+tests/                      tests for every tool, plus guards that the repo's own YAML stays valid
+docs/                       plan, strategy, principles, format, adaptation, Phase 1 guide
 docs/data-dictionary/       generated — do not edit by hand
+build/                      generated output — gitignored
 ```
 
 ## Working with the schemas
@@ -86,7 +99,42 @@ python tools/schematool.py export --profile law-firm    # one merged model → b
 python -m unittest discover -s tests                    # tests
 ```
 
-CI runs all of these on every push, so the YAML, the rules and the dictionary cannot drift apart.
+## Building Phase 1
+
+```bash
+python tools/ppcheck.py
+```
+
+```bash
+python tools/schematool.py export --profile hr-starter
+```
+
+```bash
+python tools/dvgen.py --profile hr-starter --prefix wga --layers core,hr --solution WoodgroveHR
+```
+
+```bash
+python tools/dvdeploy.py --plan build/dataverse/hr-starter --dry-run
+```
+
+```bash
+python tools/secgen.py --profile hr-starter --prefix wga --strict
+```
+
+```bash
+python tools/pbigen.py --profile hr-starter --prefix wga --strict
+```
+
+```bash
+python tools/demodata.py --profile hr-starter --people 64
+```
+
+Full walkthrough, including applying the plan to a real environment: the
+[Phase 1 build guide](docs/06-phase1-core-hr.md).
+
+CI runs every one of these on every push, so the schema, the roles, the dashboard, the demo data
+and the generated dictionary cannot drift apart. A column renamed in the YAML fails the build that
+touches it — not a Dataverse import or a Power BI refresh weeks later.
 
 Profiles: `general-firm`, `architecture-firm`, `law-firm`, `accounting-firm`, `tech-company`, plus
 single-pilot starters `travel-starter`, `work-starter`, `crm-starter`, `hr-starter`, `intranet-starter`.

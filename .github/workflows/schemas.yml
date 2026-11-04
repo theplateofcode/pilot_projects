@@ -13,9 +13,45 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install -r tools/requirements.txt
+
       - name: Validate schemas
         run: python tools/schematool.py validate
+
       - name: Check generated data dictionary is up to date
         run: python tools/schematool.py docs --check
+
       - name: Unit tests
         run: python -m unittest discover -s tests -v
+
+      # Every profile must resolve, not just the one Phase 1 uses.
+      - name: Export every profile
+        run: |
+          for profile in general-firm architecture-firm law-firm accounting-firm \
+                         tech-company travel-starter work-starter crm-starter \
+                         hr-starter intranet-starter; do
+            python tools/schematool.py export --profile "$profile"
+          done
+
+      # The generators are the contract between the schema and the build.
+      # --strict means a warning fails CI, so drift cannot land quietly.
+      - name: Generate the Dataverse plan
+        run: |
+          python tools/dvgen.py --profile hr-starter --prefix wga --layers core,hr \
+            --solution WoodgroveHR
+
+      - name: Check the plan applies
+        run: python tools/dvdeploy.py --plan build/dataverse/hr-starter --dry-run
+
+      - name: Generate security roles
+        run: python tools/secgen.py --profile hr-starter --prefix wga --strict
+
+      - name: Generate the Power BI model
+        run: python tools/pbigen.py --profile hr-starter --prefix wga
+
+      - name: Generate demo data
+        run: python tools/demodata.py --profile hr-starter --people 64 --strict
+
+      # A full-profile run catches anything an overlay adds that the starter
+      # profile does not exercise.
+      - name: Generate the full accounting-firm plan
+        run: python tools/dvgen.py --profile accounting-firm --prefix wga
