@@ -1,0 +1,266 @@
+# Contoso Technologies — the software company.
+#
+# A SaaS product company with sprints, releases and customer implementations.
+# Deliberately the one firm with almost no professional credentials, which is
+# what makes the compliance page look different and proves the model is not
+# only shaped for regulated practices.
+#
+#   python tools/demodata.py --profile tech-company --firm contoso
+
+profile: tech-company
+story: 'A SaaS product company: engineering, product and customer success, with sprints, releases
+  and implementation projects.'
+firm:
+  name: Contoso Technologies, Inc.
+  code: CTS
+  country: US
+  currency: USD
+  domain: contoso.com
+  registrationNumber: DE-5581207
+  fiscalYearStartMonth: 1
+  timeZone: America/New_York
+  # What the top rung is, in WorkerType terms. A partnership has partners;
+  # a company has employees all the way up.
+  topWorkerType: employee
+  legalForm: Inc
+offices:
+- code: SEA
+  name: Seattle
+  city: Seattle
+  line1: 1200 Westlake Avenue N
+  postalCode: '98109'
+  timeZone: America/Los_Angeles
+  share: 0.55
+- code: AUS
+  name: Austin
+  city: Austin
+  line1: 600 Congress Avenue
+  postalCode: '78701'
+  timeZone: America/Chicago
+  share: 0.45
+departments:
+- code: ENG
+  name: Engineering
+  unitType: department
+  share: 0.38
+  family: IT
+- code: PRD
+  name: Product
+  unitType: department
+  share: 0.12
+  family: DELIVERY
+- code: CS
+  name: Customer Success
+  unitType: department
+  share: 0.16
+  family: DELIVERY
+- code: SAL
+  name: Sales
+  unitType: department
+  share: 0.14
+  family: BUS_DEV
+- code: MKT
+  name: Marketing
+  unitType: department
+  share: 0.08
+  family: BUS_DEV
+- code: FIN
+  name: Finance
+  unitType: department
+  share: 0.06
+  family: FINANCE
+- code: PPL
+  name: People
+  unitType: department
+  share: 0.06
+  family: PEOPLE
+ladder:
+- grade: L1
+  title: Associate
+  share: 0.14
+  salary:
+  - 78000
+  - 95000
+- grade: L2
+  title: Engineer II
+  share: 0.22
+  salary:
+  - 105000
+  - 130000
+- grade: L3
+  title: Senior Engineer
+  share: 0.26
+  salary:
+  - 140000
+  - 175000
+- grade: L4
+  title: Staff Engineer
+  share: 0.18
+  salary:
+  - 185000
+  - 225000
+- grade: L5
+  title: Principal Engineer
+  share: 0.1
+  salary:
+  - 235000
+  - 285000
+- grade: L6
+  title: Director
+  share: 0.07
+  salary:
+  - 250000
+  - 320000
+- grade: L7
+  title: Vice President
+  share: 0.03
+  salary:
+  - 330000
+  - 450000
+credentials:
+- code: AZ305
+  name: Azure Solutions Architect Expert
+  body: Microsoft
+  cpe: 0
+  grades:
+  - L3
+  - L4
+  - L5
+  - L6
+  departments:
+  - ENG
+  - CS
+- code: CISSP
+  name: CISSP
+  body: ISC2
+  cpe: 40
+  grades:
+  - L4
+  - L5
+  - L6
+  departments:
+  - ENG
+- code: CSM
+  name: Certified Scrum Master
+  body: Scrum Alliance
+  cpe: 20
+  grades:
+  - L2
+  - L3
+  - L4
+  departments:
+  - ENG
+  - PRD
+courses:
+- code: SEC26
+  name: Secure development 2026
+  hours: 3.0
+  cpd: 3.0
+  mandatory: true
+  method: eLearning
+- code: PRIV26
+  name: Privacy and data handling
+  hours: 1.5
+  cpd: 1.5
+  mandatory: true
+  method: eLearning
+- code: SOC2
+  name: SOC 2 controls awareness
+  hours: 2.0
+  cpd: 2.0
+  mandatory: true
+  method: eLearning
+- code: ONCALL
+  name: On-call and incident response
+  hours: 4.0
+  cpd: 4.0
+  mandatory: false
+  method: virtualClassroom
+- code: K8S
+  name: Kubernetes in production
+  hours: 16.0
+  cpd: 8.0
+  mandatory: false
+  method: virtualClassroom
+- code: MGMT1
+  name: New manager bootcamp
+  hours: 16.0
+  cpd: 8.0
+  mandatory: false
+  method: classroom
+leave:
+  yearStartMonth: 1
+  mix:
+  - code: ANNUAL
+    share: 0.7
+  - code: SICK
+    share: 0.14
+  - code: PARENTAL
+    share: 0.04
+  - code: STUDY
+    share: 0.07
+  - code: UNPAID
+    share: 0.02
+  - code: BEREAVEMENT
+    share: 0.03
+  entitlement:
+    ANNUAL: 20
+    SICK: 10
+    PARENTAL: 0
+    STUDY: 5
+    UNPAID: 0
+    BEREAVEMENT: 5
+holidayCalendar:
+  code: US-FED
+  name: United States (federal)
+  holidays:
+  - name: New Year's Day
+    date: '2026-01-01'
+  - name: Martin Luther King Jr. Day
+    date: '2026-01-19'
+  - name: Memorial Day
+    date: '2026-05-25'
+  - name: Independence Day
+    date: '2026-07-03'
+  - name: Labor Day
+    date: '2026-09-07'
+  - name: Thanksgiving
+    date: '2026-11-26'
+  - name: Day after Thanksgiving
+    date: '2026-11-27'
+  - name: Christmas Day
+    date: '2026-12-25'
+onboarding:
+- name: Ship laptop
+  role: it
+  offsetDays: -7
+- name: Create Entra account and licences
+  role: it
+  offsetDays: -5
+- name: GitHub and repository access
+  role: it
+  offsetDays: -1
+- name: I-9 verification
+  role: hr
+  offsetDays: 1
+- name: Signed offer returned
+  role: hr
+  offsetDays: -3
+- name: Add to payroll and benefits
+  role: finance
+  offsetDays: -1
+- name: Secure development training
+  role: employee
+  offsetDays: 5
+- name: Assign an onboarding buddy
+  role: manager
+  offsetDays: 0
+- name: First pull request merged
+  role: employee
+  offsetDays: 10
+- name: On-call shadowing
+  role: manager
+  offsetDays: 21
+- name: 30-day review
+  role: manager
+  offsetDays: 30

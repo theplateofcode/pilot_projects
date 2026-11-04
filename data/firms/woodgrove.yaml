@@ -1,0 +1,294 @@
+# Woodgrove Advisory LLP — the accounting firm.
+#
+# One file per fictional firm, so tools/demodata.py serves all five rather
+# than hardcoding one. Use Microsoft's well-known fictional brands so a
+# screenshot never shows a real practice.
+#
+#   python tools/demodata.py --profile accounting-firm --firm woodgrove
+
+profile: accounting-firm
+story: Audit, tax and bookkeeping. Busy-season deadlines, PBC requests through the portal,
+  and practising certificates that must not lapse.
+firm:
+  name: Woodgrove Advisory LLP
+  code: WGA
+  country: GB
+  currency: GBP
+  domain: woodgroveadvisory.co.uk
+  registrationNumber: OC418872
+  fiscalYearStartMonth: 4
+  timeZone: Europe/London
+  # What the top rung is, in WorkerType terms. A partnership has partners;
+  # a company has employees all the way up.
+  topWorkerType: partner
+  legalForm: LLP
+offices:
+- code: LON
+  name: London
+  city: London
+  line1: 14 Fenchurch Avenue
+  postalCode: EC3M 5BN
+  timeZone: Europe/London
+  share: 0.62
+- code: MAN
+  name: Manchester
+  city: Manchester
+  line1: 2 St Peter's Square
+  postalCode: M2 3AE
+  timeZone: Europe/London
+  share: 0.38
+departments:
+- code: AUD
+  name: Audit
+  unitType: serviceLine
+  share: 0.34
+  family: DELIVERY
+- code: TAX
+  name: Tax
+  unitType: serviceLine
+  share: 0.22
+  family: DELIVERY
+- code: ADV
+  name: Advisory
+  unitType: serviceLine
+  share: 0.16
+  family: DELIVERY
+- code: BKP
+  name: Bookkeeping
+  unitType: serviceLine
+  share: 0.12
+  family: DELIVERY
+- code: FIN
+  name: Finance & Operations
+  unitType: department
+  share: 0.06
+  family: FINANCE
+- code: PPL
+  name: People & Culture
+  unitType: department
+  share: 0.05
+  family: PEOPLE
+- code: ITS
+  name: Technology
+  unitType: department
+  share: 0.05
+  family: IT
+ladder:
+- grade: L1
+  title: Associate
+  share: 0.26
+  salary:
+  - 28000
+  - 34000
+- grade: L2
+  title: Senior Associate
+  share: 0.24
+  salary:
+  - 36000
+  - 46000
+- grade: L3
+  title: Assistant Manager
+  share: 0.16
+  salary:
+  - 48000
+  - 58000
+- grade: L4
+  title: Manager
+  share: 0.14
+  salary:
+  - 60000
+  - 75000
+- grade: L5
+  title: Senior Manager
+  share: 0.1
+  salary:
+  - 78000
+  - 95000
+- grade: L6
+  title: Director
+  share: 0.07
+  salary:
+  - 100000
+  - 130000
+- grade: L7
+  title: Partner
+  share: 0.03
+  salary:
+  - 150000
+  - 220000
+credentials:
+- code: ACA
+  name: ICAEW Chartered Accountant (ACA)
+  body: ICAEW
+  cpe: 40
+  grades:
+  - L2
+  - L3
+  - L4
+  - L5
+  - L6
+  - L7
+  departments:
+  - AUD
+  - ADV
+  - TAX
+- code: ACCA
+  name: ACCA Chartered Certified Accountant
+  body: ACCA
+  cpe: 40
+  grades:
+  - L2
+  - L3
+  - L4
+  - L5
+  - L6
+  - L7
+  departments:
+  - AUD
+  - BKP
+  - ADV
+- code: CTA
+  name: Chartered Tax Adviser (CTA)
+  body: CIOT
+  cpe: 30
+  grades:
+  - L2
+  - L3
+  - L4
+  - L5
+  - L6
+  - L7
+  departments:
+  - TAX
+  - ADV
+- code: RI
+  name: Responsible Individual (audit)
+  body: ICAEW
+  cpe: 20
+  grades:
+  - L6
+  - L7
+  departments:
+  - AUD
+courses:
+- code: AML26
+  name: Anti-money laundering refresher 2026
+  hours: 2.0
+  cpd: 2.0
+  mandatory: true
+  method: eLearning
+- code: INDEP26
+  name: Independence and ethics 2026
+  hours: 3.0
+  cpd: 3.0
+  mandatory: true
+  method: eLearning
+- code: GDPR26
+  name: Data protection essentials
+  hours: 1.5
+  cpd: 1.5
+  mandatory: true
+  method: eLearning
+- code: ISA315
+  name: ISA 315 revised — risk identification
+  hours: 7.0
+  cpd: 7.0
+  mandatory: false
+  method: virtualClassroom
+- code: FRS102
+  name: FRS 102 periodic review update
+  hours: 4.0
+  cpd: 4.0
+  mandatory: false
+  method: virtualClassroom
+- code: MTD
+  name: Making Tax Digital for income tax
+  hours: 3.5
+  cpd: 3.5
+  mandatory: false
+  method: classroom
+- code: MGMT1
+  name: First-time manager programme
+  hours: 16.0
+  cpd: 8.0
+  mandatory: false
+  method: classroom
+leave:
+  yearStartMonth: 4
+  mix:
+  - code: ANNUAL
+    share: 0.7
+  - code: SICK
+    share: 0.14
+  - code: PARENTAL
+    share: 0.04
+  - code: STUDY
+    share: 0.07
+  - code: UNPAID
+    share: 0.02
+  - code: BEREAVEMENT
+    share: 0.03
+  entitlement:
+    ANNUAL: 25
+    SICK: 10
+    PARENTAL: 0
+    STUDY: 5
+    UNPAID: 0
+    BEREAVEMENT: 5
+holidayCalendar:
+  code: GB-ENG
+  name: England & Wales
+  holidays:
+  - name: New Year's Day
+    date: '2026-01-01'
+  - name: Good Friday
+    date: '2026-04-03'
+  - name: Easter Monday
+    date: '2026-04-06'
+  - name: Early May bank holiday
+    date: '2026-05-04'
+  - name: Spring bank holiday
+    date: '2026-05-25'
+  - name: Summer bank holiday
+    date: '2026-08-31'
+  - name: Christmas Day
+    date: '2026-12-25'
+  - name: Boxing Day
+    date: '2026-12-28'
+onboarding:
+- name: Issue laptop and phone
+  role: it
+  offsetDays: -5
+- name: Create Entra account and licences
+  role: it
+  offsetDays: -5
+- name: Right-to-work check
+  role: hr
+  offsetDays: -3
+- name: Signed contract returned
+  role: hr
+  offsetDays: -3
+- name: Desk and access card
+  role: facilities
+  offsetDays: -1
+- name: Add to payroll
+  role: finance
+  offsetDays: -1
+- name: Independence declaration
+  role: employee
+  offsetDays: 1
+- name: Anti-money laundering training
+  role: employee
+  offsetDays: 5
+- name: Register practising certificate with ICAEW
+  role: hr
+  offsetDays: 10
+- name: Assign a buddy
+  role: manager
+  offsetDays: 0
+- name: First-week check-in
+  role: manager
+  offsetDays: 5
+- name: 30-day review
+  role: manager
+  offsetDays: 30

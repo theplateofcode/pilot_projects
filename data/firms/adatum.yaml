@@ -1,0 +1,292 @@
+# Adatum Architects — the architecture practice.
+#
+# 60 people over two studios, with a hospital and a school on the boards. ARB
+# registration is what lets someone call themselves an architect, so it belongs
+# on the compliance page beside the CPD hours the RIBA requires.
+#
+#   python tools/demodata.py --profile architecture-firm --firm adatum
+
+profile: architecture-firm
+story: Two studios, RIBA stages, drawings and transmittals, site visits, and a hospital and
+  a school in progress.
+firm:
+  name: Adatum Architects
+  code: ADA
+  country: GB
+  currency: GBP
+  domain: adatumarchitects.co.uk
+  registrationNumber: 07412996
+  fiscalYearStartMonth: 4
+  timeZone: Europe/London
+  # What the top rung is, in WorkerType terms. A partnership has partners;
+  # a company has employees all the way up.
+  topWorkerType: employee
+  legalForm: Ltd
+offices:
+- code: MAN
+  name: Manchester studio
+  city: Manchester
+  line1: 18 Dale Street
+  postalCode: M1 1JW
+  timeZone: Europe/London
+  share: 0.58
+- code: GLA
+  name: Glasgow studio
+  city: Glasgow
+  line1: 42 Miller Street
+  postalCode: G1 1DT
+  timeZone: Europe/London
+  share: 0.42
+departments:
+- code: HEA
+  name: Healthcare
+  unitType: studio
+  share: 0.26
+  family: DELIVERY
+- code: EDU
+  name: Education
+  unitType: studio
+  share: 0.22
+  family: DELIVERY
+- code: RES
+  name: Residential
+  unitType: studio
+  share: 0.2
+  family: DELIVERY
+- code: HER
+  name: Heritage & Conservation
+  unitType: studio
+  share: 0.12
+  family: DELIVERY
+- code: TEC
+  name: Technical & BIM
+  unitType: department
+  share: 0.1
+  family: IT
+- code: BUS
+  name: Practice Management
+  unitType: department
+  share: 0.1
+  family: OPERATIONS
+ladder:
+- grade: L1
+  title: Architectural Assistant
+  share: 0.22
+  salary:
+  - 24000
+  - 29000
+- grade: L2
+  title: Part II Assistant
+  share: 0.2
+  salary:
+  - 30000
+  - 36000
+- grade: L3
+  title: Architect
+  share: 0.22
+  salary:
+  - 38000
+  - 46000
+- grade: L4
+  title: Senior Architect
+  share: 0.16
+  salary:
+  - 48000
+  - 58000
+- grade: L5
+  title: Associate
+  share: 0.11
+  salary:
+  - 60000
+  - 72000
+- grade: L6
+  title: Senior Associate
+  share: 0.06
+  salary:
+  - 75000
+  - 92000
+- grade: L7
+  title: Director
+  share: 0.03
+  salary:
+  - 100000
+  - 140000
+credentials:
+- code: ARB
+  name: ARB registered architect
+  body: ARB
+  cpe: 35
+  grades:
+  - L3
+  - L4
+  - L5
+  - L6
+  - L7
+  departments:
+  - HEA
+  - EDU
+  - RES
+  - HER
+- code: RIBA
+  name: RIBA Chartered Member
+  body: RIBA
+  cpe: 35
+  grades:
+  - L3
+  - L4
+  - L5
+  - L6
+  - L7
+  departments:
+  - HEA
+  - EDU
+  - RES
+  - HER
+- code: PSD
+  name: Principal Designer (CDM 2015)
+  body: APS
+  cpe: 12
+  grades:
+  - L5
+  - L6
+  - L7
+  departments:
+  - HEA
+  - EDU
+- code: CSCS
+  name: CSCS site card
+  body: CITB
+  cpe: 0
+  grades:
+  - L1
+  - L2
+  - L3
+  - L4
+  - L5
+  - L6
+  - L7
+  departments:
+  - HEA
+  - EDU
+  - RES
+  - HER
+  - TEC
+courses:
+- code: CDM26
+  name: CDM 2015 duties refresher
+  hours: 3.0
+  cpd: 3.0
+  mandatory: true
+  method: eLearning
+- code: FIRE26
+  name: Building Safety Act and the gateway regime
+  hours: 4.0
+  cpd: 4.0
+  mandatory: true
+  method: virtualClassroom
+- code: GDPR26
+  name: Data protection essentials
+  hours: 1.5
+  cpd: 1.5
+  mandatory: true
+  method: eLearning
+- code: SITE
+  name: Site safety induction
+  hours: 2.0
+  cpd: 2.0
+  mandatory: true
+  method: classroom
+- code: REVIT
+  name: Revit advanced families
+  hours: 14.0
+  cpd: 7.0
+  mandatory: false
+  method: classroom
+- code: PASS
+  name: Passivhaus design primer
+  hours: 16.0
+  cpd: 16.0
+  mandatory: false
+  method: classroom
+- code: MGMT1
+  name: Running a project team
+  hours: 12.0
+  cpd: 6.0
+  mandatory: false
+  method: classroom
+leave:
+  yearStartMonth: 4
+  mix:
+  - code: ANNUAL
+    share: 0.7
+  - code: SICK
+    share: 0.14
+  - code: PARENTAL
+    share: 0.04
+  - code: STUDY
+    share: 0.07
+  - code: UNPAID
+    share: 0.02
+  - code: BEREAVEMENT
+    share: 0.03
+  entitlement:
+    ANNUAL: 25
+    SICK: 10
+    PARENTAL: 0
+    STUDY: 5
+    UNPAID: 0
+    BEREAVEMENT: 5
+holidayCalendar:
+  code: GB-ENG
+  name: England & Wales
+  holidays:
+  - name: New Year's Day
+    date: '2026-01-01'
+  - name: Good Friday
+    date: '2026-04-03'
+  - name: Easter Monday
+    date: '2026-04-06'
+  - name: Early May bank holiday
+    date: '2026-05-04'
+  - name: Spring bank holiday
+    date: '2026-05-25'
+  - name: Summer bank holiday
+    date: '2026-08-31'
+  - name: Christmas Day
+    date: '2026-12-25'
+  - name: Boxing Day
+    date: '2026-12-28'
+onboarding:
+- name: Issue laptop and dual monitors
+  role: it
+  offsetDays: -5
+- name: Create Entra account and licences
+  role: it
+  offsetDays: -5
+- name: Revit and BIM 360 access
+  role: it
+  offsetDays: -2
+- name: Right-to-work check
+  role: hr
+  offsetDays: -3
+- name: Signed contract returned
+  role: hr
+  offsetDays: -3
+- name: Site safety induction
+  role: employee
+  offsetDays: 3
+- name: CSCS card check
+  role: hr
+  offsetDays: 5
+- name: Register ARB number
+  role: hr
+  offsetDays: 10
+- name: Studio tour and introductions
+  role: manager
+  offsetDays: 0
+- name: First-week check-in
+  role: manager
+  offsetDays: 5
+- name: 30-day review
+  role: manager
+  offsetDays: 30

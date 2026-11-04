@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 """Generate demo data for a fictional firm, validated against the resolved model.
 
+The firm itself is data: `data/firms/*.yaml` carries its offices, departments,
+career ladder, professional credentials, courses, leave rules and onboarding
+checklist, so one generator serves all five fictional brands rather than
+hardcoding one. Each file is dressed for its industry, which is the point — the
+compliance page looks different for a law firm (practising certificates) than
+for a software company (almost none), and that is the model proving it is not
+shaped only for regulated practices.
+
 Writes one JSON file per table, with lookups given as the target row's natural
 key — the same convention `schemas/*.yaml` uses for `seed:` — so the output can
 be loaded by the same code path as the reference data.
@@ -31,59 +39,128 @@ import random
 import sys
 import unicodedata
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 BUILD_DIR = ROOT / "build"
 
 TODAY = dt.date(2026, 11, 4)
 
-FIRM = {
-    "name": "Woodgrove Advisory LLP",
-    "code": "WGA",
-    "country": "GB",
-    "currency": "GBP",
-    "domain": "woodgroveadvisory.co.uk",
+FIRMS_DIR = ROOT / "data" / "firms"
+
+# Which firm each profile is dressed as, from the roadmap's demo companies.
+PROFILE_FIRMS = {
+    "accounting-firm": "woodgrove",
+    "law-firm": "fabrikam",
+    "architecture-firm": "adatum",
+    "tech-company": "contoso",
+    "general-firm": "northwind",
+    "hr-starter": "woodgrove",
+    "travel-starter": "northwind",
+    "work-starter": "contoso",
+    "crm-starter": "fabrikam",
+    "intranet-starter": "adatum",
 }
 
-OFFICES = [
-    {"code": "LON", "name": "London", "city": "London", "line1": "14 Fenchurch Avenue",
-     "postalCode": "EC3M 5BN", "timeZone": "Europe/London", "share": 0.62},
-    {"code": "MAN", "name": "Manchester", "city": "Manchester", "line1": "2 St Peter's Square",
-     "postalCode": "M2 3AE", "timeZone": "Europe/London", "share": 0.38},
-]
 
-# Service lines of an accounting firm, with the shape of a real practice: audit
-# is the biggest, advisory the most senior-heavy.
-DEPARTMENTS = [
-    {"code": "AUD", "name": "Audit", "unitType": "serviceLine", "share": 0.34,
-     "family": "DELIVERY"},
-    {"code": "TAX", "name": "Tax", "unitType": "serviceLine", "share": 0.22,
-     "family": "DELIVERY"},
-    {"code": "ADV", "name": "Advisory", "unitType": "serviceLine", "share": 0.16,
-     "family": "DELIVERY"},
-    {"code": "BKP", "name": "Bookkeeping", "unitType": "serviceLine", "share": 0.12,
-     "family": "DELIVERY"},
-    {"code": "FIN", "name": "Finance & Operations", "unitType": "department", "share": 0.06,
-     "family": "FINANCE"},
-    {"code": "PPL", "name": "People & Culture", "unitType": "department", "share": 0.05,
-     "family": "PEOPLE"},
-    {"code": "ITS", "name": "Technology", "unitType": "department", "share": 0.05,
-     "family": "IT"},
-]
+@dataclass
+class FirmConfig:
+    """One fictional firm, loaded from data/firms/<slug>.yaml."""
+    slug: str
+    profile: str
+    story: str
+    firm: dict[str, Any]
+    offices: list[dict[str, Any]]
+    departments: list[dict[str, Any]]
+    ladder: list[dict[str, Any]]
+    credentials: list[dict[str, Any]]
+    courses: list[dict[str, Any]]
+    leave: dict[str, Any]
+    holiday_calendar: dict[str, Any]
+    onboarding: list[dict[str, Any]]
 
-# Grade -> (title by department, salary band, share of staff, CPE requirement)
-LADDER = [
-    {"grade": "L1", "title": "Associate", "share": 0.26, "salary": (28000, 34000)},
-    {"grade": "L2", "title": "Senior Associate", "share": 0.24, "salary": (36000, 46000)},
-    {"grade": "L3", "title": "Assistant Manager", "share": 0.16, "salary": (48000, 58000)},
-    {"grade": "L4", "title": "Manager", "share": 0.14, "salary": (60000, 75000)},
-    {"grade": "L5", "title": "Senior Manager", "share": 0.10, "salary": (78000, 95000)},
-    {"grade": "L6", "title": "Director", "share": 0.07, "salary": (100000, 130000)},
-    {"grade": "L7", "title": "Partner", "share": 0.03, "salary": (150000, 220000)},
-]
+    @property
+    def name(self) -> str:
+        return str(self.firm["name"])
 
+    @property
+    def top_grade(self) -> str:
+        return str(self.ladder[-1]["grade"])
+
+    @property
+    def top_worker_type(self) -> str:
+        """A partnership has partners at the top; a company has employees."""
+        return str(self.firm.get("topWorkerType", "employee"))
+
+    def salary_band(self, rung: dict[str, Any]) -> tuple[int, int]:
+        low, high = rung["salary"]
+        return int(low), int(high)
+
+
+REQUIRED_FIRM_KEYS = ("name", "code", "country", "currency", "domain")
+REQUIRED_SECTIONS = ("firm", "offices", "departments", "ladder", "leave",
+                     "holidayCalendar", "onboarding")
+
+
+def load_firm(slug: str) -> FirmConfig:
+    """Read a firm file and check it before anything is generated from it."""
+    path = FIRMS_DIR / f"{slug}.yaml"
+    if not path.exists():
+        available = ", ".join(sorted(p.stem for p in FIRMS_DIR.glob("*.yaml")))
+        raise DataError(f"no firm file {path} — available: {available or 'none'}")
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+    missing = [key for key in REQUIRED_SECTIONS if not raw.get(key)]
+    if missing:
+        raise DataError(f"{path.name} is missing: {', '.join(missing)}")
+    absent = [key for key in REQUIRED_FIRM_KEYS if not raw["firm"].get(key)]
+    if absent:
+        raise DataError(f"{path.name}: firm is missing {', '.join(absent)}")
+
+    for section, fields in (("offices", ("code", "name", "share")),
+                            ("departments", ("code", "name", "unitType", "share",
+                                             "family")),
+                            ("ladder", ("grade", "title", "share", "salary"))):
+        for index, row in enumerate(raw[section]):
+            for field_name in fields:
+                if row.get(field_name) is None:
+                    raise DataError(
+                        f"{path.name}: {section}[{index}] has no '{field_name}'")
+
+    for section in ("offices", "departments", "ladder"):
+        total = sum(float(row["share"]) for row in raw[section])
+        if not 0.95 <= total <= 1.05:
+            raise DataError(
+                f"{path.name}: {section} shares add up to {total:.2f}, not ~1.0")
+
+    codes = [row["code"] for row in raw["departments"]]
+    if len(codes) != len(set(codes)):
+        raise DataError(f"{path.name}: duplicate department codes")
+
+    return FirmConfig(
+        slug=slug,
+        profile=str(raw.get("profile", "")),
+        story=" ".join(str(raw.get("story", "")).split()),
+        firm=raw["firm"],
+        offices=raw["offices"],
+        departments=raw["departments"],
+        ladder=raw["ladder"],
+        credentials=raw.get("credentials") or [],
+        courses=raw.get("courses") or [],
+        leave=raw["leave"],
+        holiday_calendar=raw["holidayCalendar"],
+        onboarding=raw["onboarding"],
+    )
+
+
+
+
+# Shared across every firm: a deliberately international mix, so a screenshot
+# does not read as one country's staff list.
 FIRST_NAMES = [
     "Aisha", "Alice", "Amara", "Amelia", "Anil", "Anna", "Arjun", "Beatrice", "Ben",
     "Bilal", "Caitlin", "Callum", "Carlos", "Catherine", "Chen", "Chloe", "Daniel",
@@ -115,41 +192,10 @@ LAST_NAMES = [
     "Yildiz", "Zhang",
 ]
 
-CREDENTIALS = [
-    {"code": "ACA", "name": "ICAEW Chartered Accountant (ACA)", "body": "ICAEW",
-     "cpe": 40, "grades": ["L2", "L3", "L4", "L5", "L6", "L7"],
-     "departments": ["AUD", "ADV", "TAX"]},
-    {"code": "ACCA", "name": "ACCA Chartered Certified Accountant", "body": "ACCA",
-     "cpe": 40, "grades": ["L2", "L3", "L4", "L5", "L6", "L7"],
-     "departments": ["AUD", "BKP", "ADV"]},
-    {"code": "CTA", "name": "Chartered Tax Adviser (CTA)", "body": "CIOT",
-     "cpe": 30, "grades": ["L2", "L3", "L4", "L5", "L6", "L7"],
-     "departments": ["TAX", "ADV"]},
-    {"code": "RI", "name": "Responsible Individual (audit)", "body": "ICAEW",
-     "cpe": 20, "grades": ["L6", "L7"], "departments": ["AUD"]},
-]
 
-COURSES = [
-    {"code": "AML26", "name": "Anti-money laundering refresher 2026", "hours": 2.0,
-     "cpd": 2.0, "mandatory": True, "method": "eLearning"},
-    {"code": "INDEP26", "name": "Independence and ethics 2026", "hours": 3.0,
-     "cpd": 3.0, "mandatory": True, "method": "eLearning"},
-    {"code": "GDPR26", "name": "Data protection essentials", "hours": 1.5,
-     "cpd": 1.5, "mandatory": True, "method": "eLearning"},
-    {"code": "ISA315", "name": "ISA 315 revised — risk identification", "hours": 7.0,
-     "cpd": 7.0, "mandatory": False, "method": "virtualClassroom"},
-    {"code": "FRS102", "name": "FRS 102 periodic review update", "hours": 4.0,
-     "cpd": 4.0, "mandatory": False, "method": "virtualClassroom"},
-    {"code": "MTD", "name": "Making Tax Digital for income tax", "hours": 3.5,
-     "cpd": 3.5, "mandatory": False, "method": "classroom"},
-    {"code": "MGMT1", "name": "First-time manager programme", "hours": 16.0,
-     "cpd": 8.0, "mandatory": False, "method": "classroom"},
-]
-
-LEAVE_MIX = [
-    ("ANNUAL", 0.70), ("SICK", 0.14), ("PARENTAL", 0.04),
-    ("STUDY", 0.07), ("UNPAID", 0.02), ("BEREAVEMENT", 0.03),
-]
+# The approverGroupId a group step carries in the demo data. A real tenant uses
+# an Entra group object id; the demo resolves it to the firm's top rung.
+TOP_RUNG_GROUP = "top-rung"
 
 
 class DataError(Exception):
@@ -159,8 +205,10 @@ class DataError(Exception):
 class Firm:
     """Builds one coherent firm. Every method appends to self.rows."""
 
-    def __init__(self, model: dict[str, Any], people: int, seed: int):
+    def __init__(self, model: dict[str, Any], config: FirmConfig, people: int,
+                 seed: int):
         self.model = model
+        self.config = config
         self.entities = model.get("entities", {})
         self.enums = model.get("enums", {})
         self.seeds = model.get("seed", {})
@@ -203,10 +251,10 @@ class Firm:
             return "".join(c for c in plain.lower() if c.isalpha())
 
         base = f"{strip(first)}.{strip(last)}"
-        candidate = f"{base}@{FIRM['domain']}"
+        candidate = f"{base}@{self.config.firm['domain']}"
         suffix = 2
         while candidate in self._used_emails:
-            candidate = f"{base}{suffix}@{FIRM['domain']}"
+            candidate = f"{base}{suffix}@{self.config.firm['domain']}"
             suffix += 1
         self._used_emails.add(candidate)
         return candidate
@@ -228,57 +276,60 @@ class Firm:
 
     def build_org(self) -> None:
         self.add("LegalEntity", {
-            "code": FIRM["code"], "name": FIRM["name"],
-            "country": FIRM["country"], "baseCurrency": FIRM["currency"],
-            "registrationNumber": "OC418872", "fiscalYearStartMonth": 4,
-            "timeZone": "Europe/London",
+            "code": self.config.firm["code"], "name": self.config.firm["name"],
+            "country": self.config.firm["country"], "baseCurrency": self.config.firm["currency"],
+            "registrationNumber": self.config.firm.get("registrationNumber"),
+            "fiscalYearStartMonth": int(
+                self.config.firm.get("fiscalYearStartMonth", 1)),
+            "timeZone": self.config.firm.get("timeZone", "UTC"),
         })
-        for office in OFFICES:
+        for office in self.config.offices:
             self.add("Office", {
                 "code": office["code"], "name": office["name"],
-                "legalEntity": FIRM["code"], "timeZone": office["timeZone"],
-                "addressLine1": office["line1"], "addressCity": office["city"],
-                "addressPostalCode": office["postalCode"], "addressCountry": FIRM["country"],
+                "legalEntity": self.config.firm["code"],
+                "timeZone": office.get("timeZone",
+                                       self.config.firm.get("timeZone", "UTC")),
+                "addressLine1": office.get("line1"),
+                "addressCity": office.get("city"),
+                "addressPostalCode": office.get("postalCode"),
+                "addressCountry": self.config.firm["country"],
             })
         self.add("OrgUnit", {
-            "code": "FIRM", "name": FIRM["name"], "unitType": "division",
-            "legalEntity": FIRM["code"],
+            "code": "FIRM", "name": self.config.firm["name"], "unitType": "division",
+            "legalEntity": self.config.firm["code"],
         })
-        for dept in DEPARTMENTS:
+        for dept in self.config.departments:
             self.add("OrgUnit", {
                 "code": dept["code"], "name": dept["name"], "unitType": dept["unitType"],
-                "parentOrgUnit": "FIRM", "legalEntity": FIRM["code"],
+                "parentOrgUnit": "FIRM", "legalEntity": self.config.firm["code"],
                 "defaultCostCenter": f"CC-{dept['code']}",
             })
             self.add("CostCenter", {
                 "code": f"CC-{dept['code']}", "name": f"{dept['name']} cost centre",
-                "legalEntity": FIRM["code"], "orgUnit": dept["code"],
+                "legalEntity": self.config.firm["code"], "orgUnit": dept["code"],
             })
+        calendar = self.config.holiday_calendar
         self.add("HolidayCalendar", {
-            "code": "GB-ENG", "name": "England & Wales", "country": FIRM["country"],
+            "code": calendar["code"], "name": calendar["name"],
+            "country": self.config.firm["country"],
         })
-        for name, date in (
-            ("New Year's Day", dt.date(2026, 1, 1)), ("Good Friday", dt.date(2026, 4, 3)),
-            ("Easter Monday", dt.date(2026, 4, 6)), ("Early May bank holiday", dt.date(2026, 5, 4)),
-            ("Spring bank holiday", dt.date(2026, 5, 25)),
-            ("Summer bank holiday", dt.date(2026, 8, 31)),
-            ("Christmas Day", dt.date(2026, 12, 25)), ("Boxing Day", dt.date(2026, 12, 28)),
-        ):
+        for holiday in calendar.get("holidays") or []:
             self.add("Holiday", {
-                "name": name, "calendar": "GB-ENG", "holidayDate": self.iso(date),
+                "name": holiday["name"], "calendar": calendar["code"],
+                "holidayDate": str(holiday["date"]),
             })
 
     def build_job_architecture(self) -> None:
-        for dept in DEPARTMENTS:
-            for rung in LADDER:
+        for dept in self.config.departments:
+            for rung in self.config.ladder:
                 code = f"{dept['code']}-{rung['grade']}"
                 self.add("JobProfile", {
                     "code": code,
                     "name": f"{rung['title']}, {dept['name']}",
                     "jobFamily": "LEADERSHIP" if rung["grade"] == "L7" else dept["family"],
                     "grade": rung["grade"],
-                    "isPeopleManager": LADDER.index(rung) >= 3,
-                    "overtimeEligible": LADDER.index(rung) <= 1,
+                    "isPeopleManager": self.config.ladder.index(rung) >= 3,
+                    "overtimeEligible": self.config.ladder.index(rung) <= 1,
                 })
 
     def build_people(self) -> None:
@@ -287,9 +338,9 @@ class Firm:
             names.add((self.random.choice(FIRST_NAMES), self.random.choice(LAST_NAMES)))
 
         for index, (first, last) in enumerate(sorted(names), start=1):
-            dept = self.pick_weighted(DEPARTMENTS)
-            rung = self.pick_weighted(LADDER)
-            office = self.pick_weighted(OFFICES)
+            dept = self.pick_weighted(self.config.departments)
+            rung = self.pick_weighted(self.config.ladder)
+            office = self.pick_weighted(self.config.offices)
             number = f"WGA{index:04d}"
             # Seniority bounds how long ago they could have joined.
             max_years = {"L1": 3, "L2": 6, "L3": 9, "L4": 13,
@@ -314,7 +365,9 @@ class Firm:
                 "firstName": first, "lastName": last,
                 "displayName": f"{first} {last}",
                 "workEmail": self._email(first, last),
-                "workerType": "partner" if rung["grade"] == "L7" else "employee",
+                "workerType": (self.config.top_worker_type
+                               if rung["grade"] == self.config.top_grade
+                               else "employee"),
                 "employmentStatus": status,
                 "orgUnit": dept["code"],
                 "office": office["code"],
@@ -333,19 +386,19 @@ class Firm:
                     if p["_rung"]["grade"] == "L7" and p["_left"] is None]
         if not partners:
             partners = sorted((p for p in self.employees if p["_left"] is None),
-                              key=lambda p: LADDER.index(p["_rung"]), reverse=True)[:1]
+                              key=lambda p: self.config.ladder.index(p["_rung"]), reverse=True)[:1]
         self.managing_partner = partners[0]["employeeNumber"] if partners else None
         for unit in self.rows["OrgUnit"]:
             if unit["code"] == "FIRM":
                 unit["head"] = self.managing_partner
 
         # Each department's most senior active person becomes its head.
-        for dept in DEPARTMENTS:
+        for dept in self.config.departments:
             members = [p for p in self.employees
                        if p["_dept"]["code"] == dept["code"] and p["_left"] is None]
             if not members:
                 continue
-            head = max(members, key=lambda p: LADDER.index(p["_rung"]))
+            head = max(members, key=lambda p: self.config.ladder.index(p["_rung"]))
             for unit in self.rows["OrgUnit"]:
                 if unit["code"] == dept["code"]:
                     unit["head"] = head["employeeNumber"]
@@ -356,22 +409,24 @@ class Firm:
 
         for person in self.employees:
             # workerType follows the rung, which _ensure_partners may have raised.
-            person["workerType"] = ("partner" if person["_rung"]["grade"] == LADDER[-1]["grade"]
+            person["workerType"] = (self.config.top_worker_type
+                                    if person["_rung"]["grade"] == self.config.top_grade
                                     else "employee")
             self.add("Employee", {
                 k: v for k, v in person.items() if not k.startswith("_")
             })
 
     def _ensure_partners(self) -> None:
-        """A firm this size has partners, whatever the random draw says.
+        """A firm this size has people at the top, whatever the random draw says.
 
-        The top rung is 3% of staff, so a 64-person firm expects two — and a
-        single draw can easily give none. A partnership with no partners is
-        wrong on its face, and it also leaves the pay-change policy's partner
-        step with an empty group, so the floor is enforced rather than hoped for.
+        The top rung is a few per cent of staff, so a 64-person firm expects two
+        and a single draw can easily give none. A partnership with no partners is
+        wrong on its face, and either way it leaves the pay-change policy's group
+        step with no members, so the floor is enforced rather than hoped for.
         """
         wanted = max(2, self.people // 25)
-        top = LADDER[-1]
+        top = self.config.ladder[-1]
+        label = self.config.ladder[-1]["title"].lower()
         partners = [p for p in self.employees
                     if p["_rung"]["grade"] == top["grade"] and p["_left"] is None]
         if len(partners) >= wanted:
@@ -381,7 +436,7 @@ class Firm:
         candidates = sorted(
             (p for p in self.employees
              if p["_left"] is None and p["_rung"]["grade"] != top["grade"]),
-            key=lambda p: (LADDER.index(p["_rung"]), p["_joined"]),
+            key=lambda p: (self.config.ladder.index(p["_rung"]), p["_joined"]),
             reverse=True,
         )
         promoted = candidates[:wanted - len(partners)]
@@ -389,9 +444,9 @@ class Firm:
             person["_rung"] = top
             partners.append(person)
         self.notes.append(
-            f"the random draw gave {len(partners) - len(promoted)} partner(s); "
-            f"promoted {len(promoted)} to reach the floor of {wanted} for a firm of "
-            f"{self.people}")
+            f"the random draw gave {len(partners) - len(promoted)} "
+            f"{label}(s); promoted {len(promoted)} to reach the floor of {wanted} "
+            f"for a firm of {self.people}")
 
     def _manager_for(self, person: dict[str, Any]) -> str | None:
         """Someone more senior in the same department, else up the chain.
@@ -405,7 +460,7 @@ class Firm:
             p for p in self.employees
             if p["_dept"]["code"] == person["_dept"]["code"]
             and p["_left"] is None
-            and LADDER.index(p["_rung"]) > LADDER.index(person["_rung"])
+            and self.config.ladder.index(p["_rung"]) > self.config.ladder.index(person["_rung"])
         ]
         if candidates:
             return self.random.choice(candidates)["employeeNumber"]
@@ -424,15 +479,15 @@ class Firm:
 
             self.add("Employment", {
                 "code": employment_code,
-                "name": f"{person['displayName']} — {FIRM['name']}",
-                "employee": number, "legalEntity": FIRM["code"],
+                "name": f"{person['displayName']} — {self.config.firm['name']}",
+                "employee": number, "legalEntity": self.config.firm["code"],
                 "employmentType": "partTime" if self.random.random() < 0.12 else "fullTime",
                 "contractType": "permanent" if self.random.random() > 0.08 else "fixedTerm",
                 "startDate": self.iso(joined),
                 "continuousServiceDate": self.iso(joined),
                 "probationEndDate": self.iso(joined + dt.timedelta(days=180)),
                 "endDate": self.iso(left),
-                "noticePeriodDays": 30 if LADDER.index(rung) < 3 else 90,
+                "noticePeriodDays": 30 if self.config.ladder.index(rung) < 3 else 90,
                 "terminationType": self.random.choice(
                     ["resignation", "resignation", "resignation", "redundancy", "retirement"]
                 ) if left else None,
@@ -442,14 +497,14 @@ class Firm:
 
             # Assignment history: a promotion roughly every four years of service.
             service_years = ((left or TODAY) - joined).days / 365.25
-            steps = min(int(service_years // 4), LADDER.index(rung))
-            start_rung = LADDER.index(rung) - steps
+            steps = min(int(service_years // 4), self.config.ladder.index(rung))
+            start_rung = self.config.ladder.index(rung) - steps
             current_from = joined
             manager = self._manager_for(person)
             fte = 1.0 if self.random.random() > 0.12 else self.random.choice([0.6, 0.8, 0.8])
 
             for step in range(steps + 1):
-                this_rung = LADDER[start_rung + step]
+                this_rung = self.config.ladder[start_rung + step]
                 is_last = step == steps
                 valid_to = None if is_last else current_from + dt.timedelta(
                     days=self.random.randint(1100, 1600))
@@ -494,7 +549,7 @@ class Firm:
                     "name": f"{person['displayName']} — base pay",
                     "employee": number, "basis": "annual",
                     "amount": round(amount * factor, -2),
-                    "currency": FIRM["currency"],
+                    "currency": self.config.firm["currency"],
                     "grade": assignment["grade"],
                     "changeReason": "newHire" if index == 0 else "promotion",
                     "validFrom": assignment["validFrom"],
@@ -502,23 +557,27 @@ class Firm:
                 })
 
     def build_leave(self) -> None:
-        year_start, year_end = dt.date(2026, 4, 1), dt.date(2027, 3, 31)
-        for leave_type, _ in LEAVE_MIX:
-            entitlement = {"ANNUAL": 25, "SICK": 10, "PARENTAL": 0,
-                           "STUDY": 5, "UNPAID": 0, "BEREAVEMENT": 5}[leave_type]
+        entitlements = self.config.leave.get("entitlement") or {}
+        month = int(self.config.leave.get("yearStartMonth", 1))
+        year = TODAY.year if TODAY.month >= month else TODAY.year - 1
+        year_start = dt.date(year, month, 1)
+        year_end = dt.date(year + 1, month, 1) - dt.timedelta(days=1)
+        for item in self.config.leave["mix"]:
+            leave_type = item["code"]
+            entitlement = entitlements.get(leave_type, 0)
             self.add("LeavePolicy", {
                 "code": f"POL-{leave_type}",
-                "name": f"{leave_type.title()} — {FIRM['name']}",
-                "leaveType": leave_type, "legalEntity": FIRM["code"],
-                "country": FIRM["country"],
+                "name": f"{leave_type.title()} — {self.config.firm['name']}",
+                "leaveType": leave_type, "legalEntity": self.config.firm["code"],
+                "country": self.config.firm["country"],
                 "entitlementPerYear": entitlement,
                 "accrualFrequency": "upfrontAnnually" if leave_type == "ANNUAL" else "none",
                 "maxCarryOver": 5 if leave_type == "ANNUAL" else 0,
                 "carryOverExpiryMonths": 3 if leave_type == "ANNUAL" else None,
                 "minNoticeDays": 14 if leave_type == "ANNUAL" else 0,
                 "proRataForPartTime": True,
-                "yearStartMonth": 4,
-                "validFrom": self.iso(dt.date(2026, 4, 1)),
+                "yearStartMonth": month,
+                "validFrom": self.iso(year_start),
             })
 
         request_index = 0
@@ -531,7 +590,8 @@ class Firm:
                  if r["employee"] == number and r["validTo"] is None), None)
             fte = assignment["fte"] if assignment else 1.0
 
-            entitlement = round(25 * fte, 1)
+            annual = float(entitlements.get("ANNUAL", 25))
+            entitlement = round(annual * fte, 1)
             carried = round(self.random.choice([0, 0, 0, 1, 2, 3]) * fte, 1)
             taken = 0.0
             pending = 0.0
@@ -542,10 +602,9 @@ class Firm:
             # broken rather than realistic.
             annual_allowance = entitlement + carried
             annual_committed = 0.0
-            count = self.random.randint(2, 9 - LADDER.index(person["_rung"]) // 2)
+            count = self.random.randint(2, 9 - self.config.ladder.index(person["_rung"]) // 2)
             for _ in range(count):
-                leave_type = self.pick_weighted(
-                    [{"code": c, "share": s} for c, s in LEAVE_MIX])["code"]
+                leave_type = self.pick_weighted(self.config.leave["mix"])["code"]
                 start = self.date_between(year_start, min(year_end, TODAY + dt.timedelta(days=120)))
                 length = self.random.choice([1, 1, 2, 3, 5, 5, 10])
                 end = start + dt.timedelta(days=length - 1)
@@ -590,8 +649,9 @@ class Firm:
                 })
 
             self.add("LeaveBalance", {
-                "code": f"LB-{number}-ANNUAL-2026",
-                "name": f"{person['displayName']} — Annual leave — 2026/27",
+                "code": f"LB-{number}-ANNUAL-{year}",
+                "name": f"{person['displayName']} — Annual leave — "
+                        f"{year}/{str(year + 1)[-2:]}",
                 "employee": number, "leaveType": "ANNUAL",
                 "periodStart": self.iso(year_start), "periodEnd": self.iso(year_end),
                 "entitlement": entitlement, "carriedOver": carried,
@@ -615,7 +675,7 @@ class Firm:
         })
         self.add("ApprovalPolicy", {
             "code": "POL-LEAVE-LONG", "name": "Leave — over 10 days",
-            "appliesToEntity": "wga_leaverequest", "legalEntity": FIRM["code"],
+            "appliesToEntity": "wga_leaverequest", "legalEntity": self.config.firm["code"],
             "evaluationOrder": 10, "reminderAfterHours": 24, "escalateAfterHours": 48,
             "description": "Longer absences also need the service line head.",
         })
@@ -637,6 +697,10 @@ class Firm:
             self.add("ApprovalPolicyStep", {
                 "code": f"POL-COMP-{sequence}", "policy": "POL-COMP",
                 "name": name, "sequence": sequence, "approverType": kind,
+                # A group step needs a group, or the engine has nobody to ask.
+                # In a real tenant this is an Entra group object id; here it is
+                # the firm's top rung, which the directory resolves by grade.
+                "approverGroupId": (TOP_RUNG_GROUP if kind == "group" else None),
                 "completionRule": "allApprovers" if kind == "group" else "anyApprover",
                 "timeoutHours": 120,
             })
@@ -706,7 +770,7 @@ class Firm:
             })
 
     def build_credentials(self) -> None:
-        for credential in CREDENTIALS:
+        for credential in self.config.credentials:
             self.add("CredentialType", {
                 "code": credential["code"], "name": credential["name"],
                 "category": "professionalLicence" if credential["code"] == "RI"
@@ -720,7 +784,7 @@ class Firm:
         for person in self.employees:
             if person["_left"] is not None:
                 continue
-            for credential in CREDENTIALS:
+            for credential in self.config.credentials:
                 if person["_rung"]["grade"] not in credential["grades"]:
                     continue
                 if person["_dept"]["code"] not in credential["departments"]:
@@ -751,7 +815,7 @@ class Firm:
                     "employee": person["employeeNumber"],
                     "credentialType": credential["code"],
                     "credentialNumber": f"{credential['code']}-{self.random.randint(100000, 999999)}",
-                    "jurisdiction": "United Kingdom", "country": FIRM["country"],
+                    "jurisdiction": "United Kingdom", "country": self.config.firm["country"],
                     "issuedOn": self.iso(person["_joined"] + dt.timedelta(days=200)),
                     "expiresOn": self.iso(expires), "status": status,
                     "verifiedOn": self.iso(TODAY - dt.timedelta(days=self.random.randint(30, 300))),
@@ -769,7 +833,14 @@ class Firm:
         """
         rows = self.rows.get("EmployeeCredential", [])
         if not rows:
-            self.warnings.append("no credentials generated — the compliance page will be empty")
+            if self.config.credentials:
+                self.warnings.append(
+                    "no credentials generated although the firm defines some — "
+                    "check the grade and department filters")
+            else:
+                self.notes.append(
+                    f"{self.config.name} has no professional credentials, so the "
+                    "compliance page shows mandatory training only")
             return
         wanted_expiring, wanted_expired = 4, 2
         expiring = [r for r in rows if r["status"] == "active"
@@ -788,20 +859,20 @@ class Firm:
             row["status"] = "expired"
 
     def build_training(self) -> None:
-        for course in COURSES:
+        for course in self.config.courses:
             self.add("TrainingCourse", {
                 "code": course["code"], "name": course["name"],
                 "deliveryMethod": course["method"], "durationHours": course["hours"],
                 "cpdHours": course["cpd"], "isMandatory": course["mandatory"],
                 "validityMonths": 12 if course["mandatory"] else None,
-                "currency": FIRM["currency"],
+                "currency": self.config.firm["currency"],
             })
 
         index = 0
         for person in self.employees:
             if person["_left"] is not None:
                 continue
-            for course in COURSES:
+            for course in self.config.courses:
                 if not course["mandatory"] and self.random.random() > 0.35:
                     continue
                 index += 1
@@ -896,9 +967,9 @@ class Firm:
     def build_recruitment(self) -> None:
         open_roles = max(4, self.people // 12)
         for index in range(1, open_roles + 1):
-            dept = self.pick_weighted(DEPARTMENTS)
-            rung = self.pick_weighted(LADDER[:5])
-            office = self.pick_weighted(OFFICES)
+            dept = self.pick_weighted(self.config.departments)
+            rung = self.pick_weighted(self.config.ladder[:5])
+            office = self.pick_weighted(self.config.offices)
             head = dept.get("_head")
             if not head:
                 continue
@@ -921,7 +992,7 @@ class Firm:
                 "reason": self.random.choice(["replacement", "newHeadcount", "replacement"]),
                 "employmentType": "fullTime", "contractType": "permanent",
                 "workArrangement": "hybrid",
-                "salaryMin": low, "salaryMax": high, "currency": FIRM["currency"],
+                "salaryMin": low, "salaryMax": high, "currency": self.config.firm["currency"],
                 "targetStartDate": self.iso(posted + dt.timedelta(days=120)),
                 "status": "filled" if filled else "open",
                 "isInternalOnly": False,
@@ -980,23 +1051,12 @@ class Firm:
     def build_checklists(self) -> None:
         self.add("ChecklistTemplate", {
             "code": "ONB-STD", "name": "Standard onboarding", "checklistType": "onboarding",
-            "legalEntity": FIRM["code"],
-            "description": "Everything a new joiner needs in their first fortnight.",
+            "legalEntity": self.config.firm["code"],
+            "description": f"Everything a new joiner at {self.config.name} needs in "
+                           "their first fortnight.",
         })
-        tasks = [
-            ("Issue laptop and phone", "it", -5),
-            ("Create Entra account and licences", "it", -5),
-            ("Right-to-work check", "hr", -3),
-            ("Signed contract returned", "hr", -3),
-            ("Desk and access card", "facilities", -1),
-            ("Add to payroll", "finance", -1),
-            ("Independence declaration", "employee", 1),
-            ("Anti-money laundering training", "employee", 5),
-            ("Register practising certificate with ICAEW", "hr", 10),
-            ("Assign a buddy", "manager", 0),
-            ("First-week check-in", "manager", 5),
-            ("30-day review", "manager", 30),
-        ]
+        tasks = [(t["name"], t["role"], int(t["offsetDays"]))
+                 for t in self.config.onboarding]
         for sequence, (name, role, offset) in enumerate(tasks, start=1):
             self.add("ChecklistTemplateTask", {
                 "code": f"ONB-STD-{sequence:02d}", "template": "ONB-STD", "title": name,
@@ -1238,6 +1298,8 @@ class Validator:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Generate validated demo data.")
     parser.add_argument("--profile", required=True)
+    parser.add_argument("--firm", help="firm slug in data/firms (default: the firm the "
+                                       "roadmap dresses this profile as)")
     parser.add_argument("--people", type=int, default=64, help="how many staff (default 64)")
     parser.add_argument("--seed", type=int, default=20261104, help="random seed")
     parser.add_argument("--model", help="resolved model JSON (default: build/<profile>.model.json)")
@@ -1254,8 +1316,23 @@ def main(argv: list[str] | None = None) -> int:
         print("error: --people must be at least 8 for a sensible org chart", file=sys.stderr)
         return 2
 
+    slug = args.firm or PROFILE_FIRMS.get(args.profile)
+    if not slug:
+        available = ", ".join(sorted(p.stem for p in FIRMS_DIR.glob("*.yaml")))
+        print(f"error: no firm is mapped to profile '{args.profile}' — pass --firm "
+              f"(available: {available})", file=sys.stderr)
+        return 2
+    try:
+        config = load_firm(slug)
+    except DataError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if config.profile and config.profile != args.profile:
+        print(f"note: {slug} is written for the '{config.profile}' profile, and you "
+              f"asked for '{args.profile}' — generating anyway")
+
     model = json.loads(model_file.read_text(encoding="utf-8"))
-    firm = Firm(model, args.people, args.seed)
+    firm = Firm(model, config, args.people, args.seed)
     firm.build()
 
     validator = Validator(model, firm.rows)
@@ -1263,7 +1340,7 @@ def main(argv: list[str] | None = None) -> int:
     errors = firm.errors + validator.errors
     warnings = firm.warnings + validator.warnings
 
-    out_dir = Path(args.out) if args.out else BUILD_DIR / "demo" / "woodgrove"
+    out_dir = Path(args.out) if args.out else BUILD_DIR / "demo" / slug
     if not errors:
         out_dir.mkdir(parents=True, exist_ok=True)
         for table, rows in sorted(firm.rows.items()):
@@ -1272,7 +1349,8 @@ def main(argv: list[str] | None = None) -> int:
             (out_dir / f"{table}.json").write_text(
                 json.dumps(clean, indent=2), encoding="utf-8")
         (out_dir / "manifest.json").write_text(json.dumps({
-            "firm": FIRM["name"], "profile": args.profile,
+            "firm": config.name, "firmSlug": slug, "story": config.story,
+            "profile": args.profile,
             "people": args.people, "seed": args.seed, "generatedFor": TODAY.isoformat(),
             "rowCounts": {t: len(r) for t, r in sorted(firm.rows.items())},
             "totalRows": sum(len(r) for r in firm.rows.values()),
@@ -1282,7 +1360,7 @@ def main(argv: list[str] | None = None) -> int:
         }, indent=2), encoding="utf-8")
 
         print(f"Wrote {out_dir}")
-        print(f"  {FIRM['name']}: {args.people} staff, "
+        print(f"  {config.name}: {args.people} staff, "
               f"{sum(len(r) for r in firm.rows.values())} rows across {len(firm.rows)} tables")
         for table, rows in sorted(firm.rows.items(), key=lambda kv: -len(kv[1])):
             print(f"    {len(rows):5d}  {table}")

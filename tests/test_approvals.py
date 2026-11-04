@@ -14,6 +14,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 import approvals  # noqa: E402
+import demodata  # noqa: E402
+
+
+def demodata_top_group() -> str:
+    """The group id demodata puts on a group approval step."""
+    return demodata.TOP_RUNG_GROUP
 
 NOW = dt.datetime(2026, 11, 4, 9, 0, tzinfo=dt.timezone.utc)
 
@@ -557,6 +563,9 @@ class TestTheDemoPolicies(unittest.TestCase):
 
     def _directory(self):
         current = {a["employee"]: a for a in self.assignments if a.get("validTo") is None}
+        cls_top_grade = max(
+            (a.get("grade") for a in self.assignments if a.get("grade")),
+            key=lambda g: int(str(g).lstrip("L") or 0), default="L7")
         people = {}
         for row in self.employees:
             number = row["employeeNumber"]
@@ -572,9 +581,13 @@ class TestTheDemoPolicies(unittest.TestCase):
             heads={u["code"]: u.get("head") for u in self.units if u.get("head")},
             owners={c["code"]: c.get("budgetOwner") for c in self.centres
                     if c.get("budgetOwner")},
-            groups={"partners": [r["employeeNumber"] for r in self.employees
-                                 if r["workerType"] == "partner"
-                                 and r["employmentStatus"] != "leaver"]},
+            # The group a group step points at. Resolved from the top grade
+            # rather than workerType, because only a partnership calls them
+            # partners — Contoso's top rung is a vice president.
+            groups={demodata_top_group(): [
+                r["employeeNumber"] for r in self.employees
+                if r["employmentStatus"] != "leaver"
+                and current.get(r["employeeNumber"], {}).get("grade") == cls_top_grade]},
             parents={u["code"]: u.get("parentOrgUnit") for u in self.units
                      if u.get("parentOrgUnit")})
 
@@ -597,7 +610,8 @@ class TestTheDemoPolicies(unittest.TestCase):
                     code=s["code"], sequence=s["sequence"],
                     approver_type=s["approverType"],
                     completion_rule=s.get("completionRule", "anyApprover"),
-                    approver_group_id="partners" if s["approverType"] == "group" else None,
+                    approver_group_id=(s.get("approverGroupId")
+                                       if s["approverType"] == "group" else None),
                     timeout_hours=s.get("timeoutHours"),
                     allow_delegation=bool(s.get("allowDelegation")))
                 for s in sorted(item["steps"], key=lambda s: s["sequence"]))

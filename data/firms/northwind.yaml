@@ -1,0 +1,226 @@
+# Northwind Group — the generic mid-size firm.
+#
+# Used for the Travel Portal, which is the Microsoft-365-licences-only tier, so
+# the firm is deliberately plain: no professional credentials and a single
+# office, to show the model works without an industry overlay.
+#
+#   python tools/demodata.py --profile general-firm --firm northwind
+
+profile: general-firm
+story: A mid-size firm with no industry overlay, used for the Travel Portal on SharePoint
+  and Power Automate.
+firm:
+  name: Northwind Group Limited
+  code: NWD
+  country: GB
+  currency: GBP
+  domain: northwindgroup.co.uk
+  registrationNumber: 09218744
+  fiscalYearStartMonth: 1
+  timeZone: Europe/London
+  # What the top rung is, in WorkerType terms. A partnership has partners;
+  # a company has employees all the way up.
+  topWorkerType: employee
+  legalForm: Ltd
+offices:
+- code: LEE
+  name: Leeds
+  city: Leeds
+  line1: 8 Park Row
+  postalCode: LS1 5HD
+  timeZone: Europe/London
+  share: 1.0
+departments:
+- code: OPS
+  name: Operations
+  unitType: department
+  share: 0.34
+  family: OPERATIONS
+- code: SAL
+  name: Sales
+  unitType: department
+  share: 0.22
+  family: BUS_DEV
+- code: SVC
+  name: Client Services
+  unitType: department
+  share: 0.2
+  family: DELIVERY
+- code: FIN
+  name: Finance
+  unitType: department
+  share: 0.1
+  family: FINANCE
+- code: PPL
+  name: People
+  unitType: department
+  share: 0.07
+  family: PEOPLE
+- code: ITS
+  name: IT
+  unitType: department
+  share: 0.07
+  family: IT
+ladder:
+- grade: L1
+  title: Coordinator
+  share: 0.28
+  salary:
+  - 24000
+  - 29000
+- grade: L2
+  title: Specialist
+  share: 0.24
+  salary:
+  - 30000
+  - 38000
+- grade: L3
+  title: Senior Specialist
+  share: 0.18
+  salary:
+  - 40000
+  - 50000
+- grade: L4
+  title: Manager
+  share: 0.14
+  salary:
+  - 52000
+  - 65000
+- grade: L5
+  title: Senior Manager
+  share: 0.09
+  salary:
+  - 68000
+  - 85000
+- grade: L6
+  title: Head of
+  share: 0.04
+  salary:
+  - 90000
+  - 115000
+- grade: L7
+  title: Director
+  share: 0.03
+  salary:
+  - 130000
+  - 180000
+credentials:
+- code: FIRST_AID
+  name: First aid at work
+  body: HSE
+  cpe: 0
+  grades:
+  - L1
+  - L2
+  - L3
+  - L4
+  - L5
+  - L6
+  - L7
+  departments:
+  - OPS
+  - PPL
+courses:
+- code: GDPR26
+  name: Data protection essentials
+  hours: 1.5
+  cpd: 1.5
+  mandatory: true
+  method: eLearning
+- code: HS26
+  name: Health and safety basics
+  hours: 1.0
+  cpd: 1.0
+  mandatory: true
+  method: eLearning
+- code: TRAVEL
+  name: Travel policy and expenses
+  hours: 1.0
+  cpd: 1.0
+  mandatory: true
+  method: eLearning
+- code: EXCEL
+  name: Excel for analysts
+  hours: 8.0
+  cpd: 4.0
+  mandatory: false
+  method: virtualClassroom
+- code: MGMT1
+  name: First-time manager programme
+  hours: 16.0
+  cpd: 8.0
+  mandatory: false
+  method: classroom
+leave:
+  yearStartMonth: 1
+  mix:
+  - code: ANNUAL
+    share: 0.7
+  - code: SICK
+    share: 0.14
+  - code: PARENTAL
+    share: 0.04
+  - code: STUDY
+    share: 0.07
+  - code: UNPAID
+    share: 0.02
+  - code: BEREAVEMENT
+    share: 0.03
+  entitlement:
+    ANNUAL: 25
+    SICK: 10
+    PARENTAL: 0
+    STUDY: 5
+    UNPAID: 0
+    BEREAVEMENT: 5
+holidayCalendar:
+  code: GB-ENG
+  name: England & Wales
+  holidays:
+  - name: New Year's Day
+    date: '2026-01-01'
+  - name: Good Friday
+    date: '2026-04-03'
+  - name: Easter Monday
+    date: '2026-04-06'
+  - name: Early May bank holiday
+    date: '2026-05-04'
+  - name: Spring bank holiday
+    date: '2026-05-25'
+  - name: Summer bank holiday
+    date: '2026-08-31'
+  - name: Christmas Day
+    date: '2026-12-25'
+  - name: Boxing Day
+    date: '2026-12-28'
+onboarding:
+- name: Issue laptop
+  role: it
+  offsetDays: -5
+- name: Create Entra account and licences
+  role: it
+  offsetDays: -5
+- name: Right-to-work check
+  role: hr
+  offsetDays: -3
+- name: Signed contract returned
+  role: hr
+  offsetDays: -3
+- name: Add to payroll
+  role: finance
+  offsetDays: -1
+- name: Travel policy training
+  role: employee
+  offsetDays: 5
+- name: Health and safety induction
+  role: facilities
+  offsetDays: 1
+- name: Team introductions
+  role: manager
+  offsetDays: 0
+- name: First-week check-in
+  role: manager
+  offsetDays: 5
+- name: 30-day review
+  role: manager
+  offsetDays: 30

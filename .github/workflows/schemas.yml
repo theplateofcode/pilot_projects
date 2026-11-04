@@ -51,6 +51,15 @@ jobs:
       - name: Generate demo data
         run: python tools/demodata.py --profile hr-starter --people 64 --strict
 
+      # All five fictional firms, so an industry file cannot rot unnoticed.
+      - name: Generate every fictional firm
+        run: |
+          python tools/demodata.py --profile accounting-firm   --firm woodgrove --strict
+          python tools/demodata.py --profile law-firm          --firm fabrikam  --strict
+          python tools/demodata.py --profile architecture-firm --firm adatum    --strict
+          python tools/demodata.py --profile tech-company      --firm contoso   --strict
+          python tools/demodata.py --profile general-firm      --firm northwind --strict
+
       - name: Generate the HR model-driven app
         run: python tools/appgen.py --profile hr-starter --prefix wga --strict
 

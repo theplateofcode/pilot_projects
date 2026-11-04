@@ -4,6 +4,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
@@ -217,6 +218,169 @@ class TestValidatorInvariants(unittest.TestCase):
         self.assertFalse(any("overdrawn" in e for e in v.errors))
 
 
+class TestFirmFiles(unittest.TestCase):
+    """The firm is data now, so the files themselves need checking."""
+
+    SLUGS = ("woodgrove", "fabrikam", "adatum", "contoso", "northwind")
+
+    def test_every_firm_file_loads(self):
+        for slug in self.SLUGS:
+            config = demodata.load_firm(slug)
+            self.assertTrue(config.name, slug)
+            self.assertTrue(config.profile, slug)
+            self.assertTrue(config.story, slug)
+
+    def test_every_firm_is_mapped_from_a_profile(self):
+        mapped = set(demodata.PROFILE_FIRMS.values())
+        for slug in self.SLUGS:
+            self.assertIn(slug, mapped, slug)
+
+    def test_each_firms_profile_is_the_one_it_is_mapped_from(self):
+        for profile, slug in demodata.PROFILE_FIRMS.items():
+            config = demodata.load_firm(slug)
+            if not config.profile or profile.endswith("-starter"):
+                continue
+            self.assertEqual(config.profile, profile, slug)
+
+    def test_an_unknown_firm_is_reported_with_the_alternatives(self):
+        with self.assertRaises(demodata.DataError) as ctx:
+            demodata.load_firm("acme")
+        self.assertIn("available:", str(ctx.exception))
+
+    def test_shares_add_up_to_one(self):
+        for slug in self.SLUGS:
+            config = demodata.load_firm(slug)
+            for name, rows in (("offices", config.offices),
+                               ("departments", config.departments),
+                               ("ladder", config.ladder)):
+                total = sum(float(r["share"]) for r in rows)
+                self.assertAlmostEqual(total, 1.0, delta=0.05, msg=f"{slug}/{name}")
+
+    def test_credential_grades_and_departments_exist_in_that_firm(self):
+        for slug in self.SLUGS:
+            config = demodata.load_firm(slug)
+            grades = {r["grade"] for r in config.ladder}
+            departments = {r["code"] for r in config.departments}
+            for credential in config.credentials:
+                for grade in credential["grades"]:
+                    self.assertIn(grade, grades, f"{slug}/{credential['code']}")
+                for department in credential["departments"]:
+                    self.assertIn(department, departments,
+                                  f"{slug}/{credential['code']}")
+
+    def test_every_firm_has_a_mandatory_course(self):
+        """Otherwise the Mandatory Training Overdue tile can only read zero."""
+        for slug in self.SLUGS:
+            config = demodata.load_firm(slug)
+            self.assertTrue([c for c in config.courses if c.get("mandatory")], slug)
+
+    def test_leave_entitlement_covers_every_type_in_the_mix(self):
+        for slug in self.SLUGS:
+            config = demodata.load_firm(slug)
+            entitlement = config.leave.get("entitlement") or {}
+            for item in config.leave["mix"]:
+                self.assertIn(item["code"], entitlement, f"{slug}/{item['code']}")
+
+    def test_a_firm_file_missing_a_section_is_rejected(self):
+        import tempfile
+        import yaml as yaml_module
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "broken.yaml"
+            path.write_text(yaml_module.safe_dump({"firm": {"name": "X"}}))
+            with mock.patch.object(demodata, "FIRMS_DIR", Path(tmp)):
+                with self.assertRaises(demodata.DataError) as ctx:
+                    demodata.load_firm("broken")
+        self.assertIn("missing", str(ctx.exception))
+
+    def test_shares_that_do_not_add_up_are_rejected(self):
+        import tempfile
+        import yaml as yaml_module
+        good = yaml_module.safe_load(
+            (ROOT / "data" / "firms" / "woodgrove.yaml").read_text(encoding="utf-8"))
+        good["offices"][0]["share"] = 0.1
+        good["offices"][1]["share"] = 0.1
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "skewed.yaml"
+            path.write_text(yaml_module.safe_dump(good))
+            with mock.patch.object(demodata, "FIRMS_DIR", Path(tmp)):
+                with self.assertRaises(demodata.DataError) as ctx:
+                    demodata.load_firm("skewed")
+        self.assertIn("add up to", str(ctx.exception))
+
+
+class TestEveryFirmGenerates(unittest.TestCase):
+    """Each fictional firm must produce a valid, differentiated dataset."""
+
+    CASES = (("woodgrove", "accounting-firm"), ("fabrikam", "law-firm"),
+             ("adatum", "architecture-firm"), ("contoso", "tech-company"),
+             ("northwind", "general-firm"))
+
+    def _build(self, slug, profile, people=40):
+        model_file = ROOT / "build" / f"{profile}.model.json"
+        if not model_file.exists():
+            self.skipTest(f"run: python tools/schematool.py export --profile {profile}")
+        model = json.loads(model_file.read_text(encoding="utf-8"))
+        firm = demodata.Firm(model, demodata.load_firm(slug), people, 7)
+        firm.build()
+        validator = demodata.Validator(model, firm.rows)
+        validator.run()
+        return firm, validator
+
+    def test_every_firm_validates(self):
+        for slug, profile in self.CASES:
+            firm, validator = self._build(slug, profile)
+            self.assertEqual(firm.errors + validator.errors, [], slug)
+
+    def test_each_firm_uses_its_own_name_and_departments(self):
+        for slug, profile in self.CASES:
+            firm, _ = self._build(slug, profile)
+            config = demodata.load_firm(slug)
+            self.assertEqual(firm.rows["LegalEntity"][0]["name"], config.name)
+            codes = {u["code"] for u in firm.rows["OrgUnit"]} - {"FIRM"}
+            self.assertEqual(codes, {d["code"] for d in config.departments}, slug)
+
+    def test_the_leave_year_follows_the_firm(self):
+        for slug, profile in self.CASES:
+            firm, _ = self._build(slug, profile)
+            month = int(demodata.load_firm(slug).leave["yearStartMonth"])
+            for balance in firm.rows["LeaveBalance"]:
+                self.assertEqual(int(balance["periodStart"][5:7]), month, slug)
+
+    def test_the_annual_entitlement_follows_the_firm(self):
+        for slug, profile in self.CASES:
+            firm, _ = self._build(slug, profile)
+            expected = float(demodata.load_firm(slug).leave["entitlement"]["ANNUAL"])
+            self.assertEqual(max(b["entitlement"] for b in firm.rows["LeaveBalance"]),
+                             expected, slug)
+
+    def test_only_a_partnership_has_partners(self):
+        for slug, profile in self.CASES:
+            firm, _ = self._build(slug, profile)
+            config = demodata.load_firm(slug)
+            types = {r["workerType"] for r in firm.rows["Employee"]}
+            if config.top_worker_type == "partner":
+                self.assertIn("partner", types, slug)
+            else:
+                self.assertNotIn("partner", types, slug)
+
+    def test_each_firm_seeds_its_own_credential_types(self):
+        for slug, profile in self.CASES:
+            firm, _ = self._build(slug, profile)
+            config = demodata.load_firm(slug)
+            seeded = {r["code"] for r in firm.rows.get("CredentialType", [])}
+            self.assertEqual(seeded, {c["code"] for c in config.credentials}, slug)
+
+    def test_the_approval_group_step_carries_a_group(self):
+        """Without one the engine has nobody to ask and the run stalls."""
+        for slug, profile in self.CASES:
+            firm, _ = self._build(slug, profile)
+            group_steps = [s for s in firm.rows["ApprovalPolicyStep"]
+                           if s["approverType"] == "group"]
+            self.assertTrue(group_steps, slug)
+            for step in group_steps:
+                self.assertTrue(step.get("approverGroupId"), f"{slug}/{step['code']}")
+
+
 class TestLoadOrder(unittest.TestCase):
     def test_a_lookup_target_is_ordered_before_its_referrer(self):
         model = tiny_model()
@@ -240,8 +404,8 @@ class TestFirmShape(unittest.TestCase):
             raise unittest.SkipTest("run: python tools/schematool.py export --profile hr-starter")
         cls.model = json.loads(MODEL_FILE.read_text(encoding="utf-8"))
 
-    def _firm(self, people=24, seed=1):
-        firm = demodata.Firm(self.model, people, seed)
+    def _firm(self, people=24, seed=1, slug="woodgrove"):
+        firm = demodata.Firm(self.model, demodata.load_firm(slug), people, seed)
         firm.build()
         return firm
 

@@ -1,0 +1,292 @@
+# Fabrikam Legal LLP — the law firm.
+#
+# 120 lawyers across litigation and corporate. The detail that matters for a
+# demo: bar admissions are a practising requirement, so a lapsed one stops a
+# lawyer appearing, and an ethical wall on a sensitive matter is the thing a
+# client asks about first.
+#
+#   python tools/demodata.py --profile law-firm --firm fabrikam
+
+profile: law-firm
+story: Litigation and corporate practices, a client portal, conflict checks at intake and
+  an ethical wall on one sensitive matter.
+firm:
+  name: Fabrikam Legal LLP
+  code: FAB
+  country: GB
+  currency: GBP
+  domain: fabrikamlegal.co.uk
+  registrationNumber: OC392014
+  fiscalYearStartMonth: 5
+  timeZone: Europe/London
+  # What the top rung is, in WorkerType terms. A partnership has partners;
+  # a company has employees all the way up.
+  topWorkerType: partner
+  legalForm: LLP
+offices:
+- code: LON
+  name: London
+  city: London
+  line1: 1 Chancery Lane
+  postalCode: WC2A 1LF
+  timeZone: Europe/London
+  share: 0.72
+- code: BRI
+  name: Bristol
+  city: Bristol
+  line1: 30 Queen Square
+  postalCode: BS1 4ND
+  timeZone: Europe/London
+  share: 0.28
+departments:
+- code: LIT
+  name: Litigation & Dispute Resolution
+  unitType: practiceGroup
+  share: 0.3
+  family: DELIVERY
+- code: COR
+  name: Corporate & M&A
+  unitType: practiceGroup
+  share: 0.24
+  family: DELIVERY
+- code: EMP
+  name: Employment
+  unitType: practiceGroup
+  share: 0.14
+  family: DELIVERY
+- code: RE
+  name: Real Estate
+  unitType: practiceGroup
+  share: 0.12
+  family: DELIVERY
+- code: KNO
+  name: Knowledge & Risk
+  unitType: department
+  share: 0.08
+  family: OPERATIONS
+- code: FIN
+  name: Finance
+  unitType: department
+  share: 0.06
+  family: FINANCE
+- code: BUS
+  name: Business Services
+  unitType: department
+  share: 0.06
+  family: PEOPLE
+ladder:
+- grade: L1
+  title: Paralegal
+  share: 0.16
+  salary:
+  - 30000
+  - 36000
+- grade: L2
+  title: Trainee Solicitor
+  share: 0.14
+  salary:
+  - 42000
+  - 50000
+- grade: L3
+  title: Associate
+  share: 0.22
+  salary:
+  - 62000
+  - 80000
+- grade: L4
+  title: Senior Associate
+  share: 0.22
+  salary:
+  - 85000
+  - 110000
+- grade: L5
+  title: Legal Director
+  share: 0.12
+  salary:
+  - 120000
+  - 150000
+- grade: L6
+  title: Salaried Partner
+  share: 0.09
+  salary:
+  - 160000
+  - 210000
+- grade: L7
+  title: Equity Partner
+  share: 0.05
+  salary:
+  - 250000
+  - 420000
+credentials:
+- code: SRA
+  name: SRA practising certificate
+  body: SRA
+  cpe: 16
+  grades:
+  - L2
+  - L3
+  - L4
+  - L5
+  - L6
+  - L7
+  departments:
+  - LIT
+  - COR
+  - EMP
+  - RE
+- code: BARENG
+  name: Admitted to the roll (England & Wales)
+  body: Law Society
+  cpe: 16
+  grades:
+  - L3
+  - L4
+  - L5
+  - L6
+  - L7
+  departments:
+  - LIT
+  - COR
+- code: CILEX
+  name: CILEX Chartered Legal Executive
+  body: CILEX
+  cpe: 12
+  grades:
+  - L1
+  - L2
+  - L3
+  departments:
+  - EMP
+  - RE
+- code: NOT
+  name: Notary public
+  body: Faculty Office
+  cpe: 6
+  grades:
+  - L6
+  - L7
+  departments:
+  - COR
+  - RE
+courses:
+- code: AML26
+  name: Anti-money laundering for law firms 2026
+  hours: 2.5
+  cpd: 2.5
+  mandatory: true
+  method: eLearning
+- code: CONF26
+  name: Conflicts and confidentiality 2026
+  hours: 2.0
+  cpd: 2.0
+  mandatory: true
+  method: eLearning
+- code: GDPR26
+  name: Data protection essentials
+  hours: 1.5
+  cpd: 1.5
+  mandatory: true
+  method: eLearning
+- code: WALL
+  name: Working behind an ethical wall
+  hours: 1.0
+  cpd: 1.0
+  mandatory: true
+  method: eLearning
+- code: ADVOC
+  name: Advocacy skills intensive
+  hours: 14.0
+  cpd: 10.0
+  mandatory: false
+  method: classroom
+- code: CPR
+  name: Civil Procedure Rules update
+  hours: 3.5
+  cpd: 3.5
+  mandatory: false
+  method: virtualClassroom
+- code: MGMT1
+  name: First-time supervisor programme
+  hours: 16.0
+  cpd: 8.0
+  mandatory: false
+  method: classroom
+leave:
+  yearStartMonth: 5
+  mix:
+  - code: ANNUAL
+    share: 0.7
+  - code: SICK
+    share: 0.14
+  - code: PARENTAL
+    share: 0.04
+  - code: STUDY
+    share: 0.07
+  - code: UNPAID
+    share: 0.02
+  - code: BEREAVEMENT
+    share: 0.03
+  entitlement:
+    ANNUAL: 27
+    SICK: 10
+    PARENTAL: 0
+    STUDY: 5
+    UNPAID: 0
+    BEREAVEMENT: 5
+holidayCalendar:
+  code: GB-ENG
+  name: England & Wales
+  holidays:
+  - name: New Year's Day
+    date: '2026-01-01'
+  - name: Good Friday
+    date: '2026-04-03'
+  - name: Easter Monday
+    date: '2026-04-06'
+  - name: Early May bank holiday
+    date: '2026-05-04'
+  - name: Spring bank holiday
+    date: '2026-05-25'
+  - name: Summer bank holiday
+    date: '2026-08-31'
+  - name: Christmas Day
+    date: '2026-12-25'
+  - name: Boxing Day
+    date: '2026-12-28'
+onboarding:
+- name: Issue laptop and phone
+  role: it
+  offsetDays: -5
+- name: Create Entra account and licences
+  role: it
+  offsetDays: -5
+- name: Right-to-work check
+  role: hr
+  offsetDays: -3
+- name: Signed contract returned
+  role: hr
+  offsetDays: -3
+- name: Conflicts declaration
+  role: employee
+  offsetDays: 1
+- name: Anti-money laundering training
+  role: employee
+  offsetDays: 5
+- name: Register SRA practising certificate
+  role: hr
+  offsetDays: 10
+- name: Ethical wall briefing
+  role: manager
+  offsetDays: 2
+- name: Add to the practice management system
+  role: it
+  offsetDays: -1
+- name: Assign a supervising partner
+  role: manager
+  offsetDays: 0
+- name: First-week check-in
+  role: manager
+  offsetDays: 5
+- name: 30-day review
+  role: manager
+  offsetDays: 30
