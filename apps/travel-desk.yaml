@@ -1,0 +1,122 @@
+# The Travel Desk app — Phase 4.
+#
+# A traveller books a trip in the canvas app on their phone; the travel desk
+# works in this one. So the site map is not the traveller's journey, it is the
+# desk's day: what needs approving, who is abroad right now, what has to be
+# booked, and what money is unaccounted for.
+#
+# The order is deliberate and the first area is the one that matters: duty of
+# care. If an incident happens, nobody navigates a menu — the first thing on
+# screen must already be who is where.
+#
+#   python tools/appgen.py --profile travel-starter --prefix nwd --app apps/travel-desk.yaml
+
+meta:
+  name: Travel Desk
+  profile: travel-starter
+  prefix: nwd
+  description: >
+    Northwind Group's travel desk app. Trip approvals, bookings, duty of care,
+    expense claims and corporate card reconciliation.
+  # The three internal roles from security/travel-roles.yaml. A traveller opens
+  # the app too — they raise their own trips and claims in it when they are at a
+  # desk rather than on a phone — and sees only their own rows, because the role
+  # grants own depth rather than because the app hides anything.
+  roles: [traveller, approver, travelAdmin]
+
+areas:
+  - id: dutyOfCare
+    name: Duty of care
+    icon: Globe
+    groups:
+      - id: whereIsEverybody
+        name: Who is away
+        tables: [TripRequest]
+        note: >
+          TripRequest first in the whole app, because "who is abroad right now"
+          is the one question a travel system is not allowed to be slow at. The
+          view that answers it is a filter on this table, not a separate screen
+          — which is also why the table lives here and not under Trips: a table
+          belongs in one place in a site map, and this is the place it has to
+          be reachable from in an incident.
+      - id: risk
+        name: Destination risk
+        tables: [DestinationAdvisory]
+      - id: documents
+        name: Traveller records
+        tables: [TravellerProfile, TravelDocument, LoyaltyMembership]
+        note: >
+          The three restricted tables, grouped together rather than scattered,
+          so the boundary is visible in the navigation as well as in the role.
+          A traveller and an approver see only their own; the desk sees all,
+          which is why the desk is a small team.
+
+  - id: trips
+    name: Trips
+    icon: Airplane
+    groups:
+      - id: approvals
+        name: Approvals
+        tables: [ApprovalRequest, ApprovalStep]
+        note: >
+          The approval tables appear here rather than in an admin area because
+          an approver's queue is the reason they open the app at all. The trip
+          itself is one click away on the request, so it is not repeated.
+      - id: bookings
+        name: Bookings
+        tables: [TravelBooking, TripSegment]
+        note: >
+          A segment is the itinerary and a booking is what was bought against
+          it. They are separate tables because a segment can be rebooked, and
+          the desk needs the history of both.
+
+  - id: expenses
+    name: Expenses
+    icon: Money
+    groups:
+      - id: claims
+        name: Claims
+        tables: [ExpenseReport, ExpenseLine]
+      - id: cards
+        name: Corporate cards
+        tables: [CardTransaction]
+        note: >
+          Unmatched card spend is the desk's standing backlog, so it gets its
+          own group rather than living under a claim it has not been matched to
+          yet — which is exactly the state that makes it a problem.
+
+  - id: policy
+    name: Policy & rates
+    icon: Settings
+    groups:
+      - id: policy
+        name: Policy
+        tables: [TravelPolicy, TravelPurpose, ExpenseCategory]
+      - id: rates
+        name: Rates
+        tables: [PerDiemRate, CorporateRate, ExchangeRate, Currency]
+        note: >
+          Effective-dated reference data. The desk edits it; nobody else needs
+          to see it, and the role matrix says so.
+
+  - id: organisation
+    name: Organisation
+    icon: People
+    groups:
+      - id: people
+        name: People
+        tables: [Employee, OrgUnit, CostCenter]
+        note: >
+          Read-only for everyone but the desk. A trip is charged to a cost
+          centre and approved up an org unit, so both have to be reachable
+          from the app that books it.
+      - id: places
+        name: Places
+        tables: [LegalEntity, Office, Country]
+      - id: suppliers
+        name: Suppliers
+        tables: [Account, Contact]
+        note: >
+          Airlines, hotels and the travel management company, with their
+          account managers. The CRM module is not in this profile; these are
+          core tables being used for what they are.

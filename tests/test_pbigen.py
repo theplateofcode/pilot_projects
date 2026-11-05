@@ -533,6 +533,55 @@ class TestTheme(unittest.TestCase):
         json.dumps(pbigen.theme(spec()))
 
 
+class TestProjectOutput(unittest.TestCase):
+    """The project folder must describe itself, not the first report this tool
+    generated. The travel report shipped with a theme file named WoodgroveHR
+    and an instruction to apply it."""
+
+    def _write(self, tmp, name, spec_name):
+        spec = {"meta": {"name": name, "prefix": "pfx"},
+                "measures": [{"name": "M", "expression": "1", "folder": "F"}],
+                "pages": [{"name": "P", "visuals": [
+                    {"type": "statTile", "title": "T", "measure": "M"}]}]}
+        model = {"profile": "p", "layers": {}, "entities": {}, "enums": {},
+                 "termSets": {}, "terminology": {}, "seed": {}}
+        builder = pbigen.Builder(spec, model, "pfx")
+        out = Path(tmp)
+        pbigen.write_project(builder, out, spec, Path("powerbi") / spec_name)
+        return out
+
+    def test_the_theme_is_named_after_the_report(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            out = self._write(tmp, "Travel Analytics", "travel-dashboard.yaml")
+            themes = (out / "TravelAnalytics.Report" / "StaticResources"
+                      / "SharedResources" / "BaseThemes")
+            self.assertEqual([p.name for p in themes.glob("*.json")],
+                             ["TravelAnalytics.json"])
+
+    def test_the_pages_report_cites_the_theme_and_the_spec_it_came_from(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            out = self._write(tmp, "Travel Analytics", "travel-dashboard.yaml")
+            text = (out / "pages.md").read_text(encoding="utf-8")
+        self.assertIn("`powerbi/travel-dashboard.yaml`", text)
+        self.assertIn("BaseThemes/TravelAnalytics.json", text)
+        self.assertNotIn("hr-dashboard.yaml", text)
+        self.assertNotIn("WoodgroveHR", text)
+
+    def test_a_theme_from_an_earlier_report_is_removed(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            themes = (Path(tmp) / "TravelAnalytics.Report" / "StaticResources"
+                      / "SharedResources" / "BaseThemes")
+            themes.mkdir(parents=True)
+            stale = themes / "WoodgroveHR.json"
+            stale.write_text("{}", encoding="utf-8")
+            self._write(tmp, "Travel Analytics", "travel-dashboard.yaml")
+            self.assertFalse(stale.exists())
+            self.assertTrue((themes / "TravelAnalytics.json").exists())
+
+
 class TestRealDashboard(unittest.TestCase):
     """The committed dashboard spec must be valid against the real HR model."""
 

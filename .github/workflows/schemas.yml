@@ -48,17 +48,27 @@ jobs:
           python tools/build.py --profile law-firm-crm --prefix fab \
             --solution FabrikamCRM --firm fabrikam
 
+      # Phase 4, the travel pilot. Same generators again, against the module
+      # that ships with a Power BI dashboard, a model-driven app for the desk
+      # and a canvas app for the traveller.
+      - name: Build Phase 4
+        run: |
+          python tools/build.py --profile travel-starter --prefix nwd \
+            --solution NorthwindTravel --firm northwind
+
       - name: Check the Dataverse plans apply
         run: |
           python tools/dvdeploy.py --plan build/dataverse/hr-starter --dry-run
           python tools/dvdeploy.py --plan build/dataverse/law-firm-crm --dry-run
+          python tools/dvdeploy.py --plan build/dataverse/travel-starter --dry-run
 
       # The approval engine serves every pilot, not only HR, so every starter
       # profile is built. secgen, appgen and pbigen are skipped where their spec
       # declares another profile, which build.py reports.
+      # travel-starter is not here: it gets a full build of its own above.
       - name: Build every other starter profile
         run: |
-          for profile in travel-starter work-starter crm-starter intranet-starter; do
+          for profile in work-starter crm-starter intranet-starter; do
             python tools/build.py --profile "$profile" --prefix pfx \
               --targets schema,dataverse,sql,sharepoint
           done

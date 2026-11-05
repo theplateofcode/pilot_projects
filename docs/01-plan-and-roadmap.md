@@ -138,7 +138,7 @@ Effort below is a rough guide for one person working full time; scale it to your
 | **1. Core + HR** *(in progress)* | 3–4 weeks | Core tables and approval engine in Dataverse; HR model-driven app; employee self-service canvas app (leave, profile, training); onboarding flow; HR Power BI page | Three personas (employee, manager, HR) with security roles; leave request approved end-to-end; compensation invisible to non-HR |
 | **2. CRM** *(built from source)* | 3–4 weeks | CRM model-driven app; pipeline and proposal flow; Power Pages client portal; conflict-check process (law overlay) | Lead → opportunity → won → project hand-off works; portal user sees only their own records |
 | **3. Work Management** | 4–6 weeks | Project/backlog/time app on the chosen stack; timesheet approval; resourcing view; status report; utilisation report | 10k+ demo time entries perform well; project created from a won opportunity |
-| **4. Travel Portal** | 2–3 weeks | SharePoint lists provisioned from template; canvas app (request, approve, expenses with receipt photo); policy checks; duty-of-care view | Trip request → approval → booking → expense claim → paid, with an out-of-policy example |
+| **4. Travel Portal** *(built from source)* | 2–3 weeks | SharePoint lists provisioned from template; canvas app (request, approve, expenses with receipt photo); policy checks; duty-of-care view | Trip request → approval → booking → expense claim → paid, with an out-of-policy example |
 | **5. Intranet** | 3–4 weeks | Hub + communication sites from PnP template; news, events, policy library with attestation, service desk; SPFx web parts; Viva Connections dashboard | Audience targeting works; policy attestation report; mobile-friendly |
 | **6. Industry overlays + polish** | 2–3 weeks | Apply each industry profile to at least one pilot; demo data per fictional firm; demo videos and case studies | Each profile deploys cleanly from scratch; 3–5 minute video per pilot |
 | **7. Generators & re-platforming** *(generators done)* | ongoing | ~~Generators from the resolved model (Dataverse, SharePoint, SQL)~~; one pilot rebuilt on a second stack | Re-platformed pilot built without editing the canonical schema |
@@ -210,6 +210,7 @@ Generated from the schema and checked in CI:
 | HR model-driven app | site map, 48 forms and 48 views |
 | Solution packaging | 767 components in one folder, with its manifest |
 | Five fictional firms | Woodgrove, Fabrikam, Adatum, Contoso and Northwind, each dressed for its industry |
+| Travel on two platforms (Phase 4) | the same model generated to 32 Dataverse tables and 35 SharePoint lists in one build, with the 15 platform limits reported rather than discovered |
 
 | Still to do | Needs |
 |---|---|
@@ -220,6 +221,20 @@ Generated from the schema and checked in CI:
 | The report canvas | Power BI Desktop, from the generated page spec |
 | Demo video and case study | the above, working |
 
+### Phase 4 — Travel Portal, built from source
+
+The third pilot was three declarative specs and no new tooling: 32 Dataverse tables, 3 roles,
+27 forms and views, 26 Power BI measures over four pages, 533 solution components, a 35-list
+SharePoint template and a 583-row demo firm. It is also the first phase where both target
+platforms are generated from the same model in one build, so the "one schema, many stacks"
+claim is checkable rather than asserted — and the fifteen rows in the generated
+`limits.md` are the evidence for the stack decision rather than a warning log.
+
+Every defect it surfaced was in how a generator *reported or persisted* its work rather than
+in what it generated — including three HR security roles that shipped inside the travel
+solution because `secgen` did not own its output directory. All six are in
+[10-phase4-travel.md §7](10-phase4-travel.md#7-what-the-third-pilot-actually-cost).
+
 ### Phase 2 — CRM, built from source
 
 The second pilot was three declarative specs and one profile, run through the same
@@ -228,8 +243,8 @@ solution components and a 514-row demo firm. What it cost in tool changes — al
 latent defects a second pilot was always going to surface — is in
 [08-phase2-crm.md §7](08-phase2-crm.md#7-what-the-second-pilot-actually-cost).
 
-The full build guides are [06-phase1-core-hr.md](06-phase1-core-hr.md) and
-[08-phase2-crm.md](08-phase2-crm.md).
+The full build guides are [06-phase1-core-hr.md](06-phase1-core-hr.md),
+[08-phase2-crm.md](08-phase2-crm.md) and [10-phase4-travel.md](10-phase4-travel.md).
 
 ## 11. Next ten steps
 

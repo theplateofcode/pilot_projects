@@ -61,21 +61,26 @@ class TestSpecSkipping(unittest.TestCase):
     def test_a_spec_declares_the_profile_it_is_for(self):
         for path, expected in ((ROOT / "security" / "phase1-roles.yaml", "hr-starter"),
                                (ROOT / "powerbi" / "hr-dashboard.yaml", "hr-starter"),
-                               (ROOT / "apps" / "hr-admin.yaml", "hr-starter")):
+                               (ROOT / "apps" / "hr-admin.yaml", "hr-starter"),
+                               (ROOT / "security" / "travel-roles.yaml", "travel-starter"),
+                               (ROOT / "powerbi" / "travel-dashboard.yaml", "travel-starter"),
+                               (ROOT / "apps" / "travel-desk.yaml", "travel-starter")):
             if path.exists():
                 self.assertEqual(build.spec_profile(path), expected, path.name)
 
     def test_a_step_with_no_spec_for_this_profile_is_skipped(self):
-        """Travel has no roles file of its own, so secgen has nothing to run."""
-        step = next(s for s in build.plan_steps("travel-starter", "pfx", "S", None)
+        """The intranet pilot has no roles file of its own, so secgen has
+        nothing to run — and says which profile it found nothing for."""
+        step = next(s for s in build.plan_steps("intranet-starter", "pfx", "S", None)
                     if s.name == "secgen")
-        reason = build.skip_reason(step, "travel-starter")
+        reason = build.skip_reason(step, "intranet-starter")
         self.assertIsNotNone(reason)
-        self.assertIn("travel-starter", reason)
+        self.assertIn("intranet-starter", reason)
 
     def test_each_profile_with_a_spec_gets_its_own(self):
         for profile, expected in (("hr-starter", "phase1-roles.yaml"),
-                                  ("law-firm-crm", "crm-roles.yaml")):
+                                  ("law-firm-crm", "crm-roles.yaml"),
+                                  ("travel-starter", "travel-roles.yaml")):
             step = next(s for s in build.plan_steps(profile, "wga", "S", None)
                         if s.name == "secgen")
             self.assertIsNotNone(step.spec, profile)

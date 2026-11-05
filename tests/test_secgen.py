@@ -118,6 +118,24 @@ class TestValidation(unittest.TestCase):
         self.assertFalse(any("Later" in w for w in rs.warnings))
         self.assertTrue(any("Later is out of scope" in n for n in rs.notes))
 
+    def test_a_table_both_out_of_scope_and_granted_is_an_error(self):
+        """The roles file contradicting itself. Travel declared Currency out of
+        scope and then granted it to two of three roles, so the matrix said the
+        travel desk could not read a currency every traveller could."""
+        spec = {"outOfScope": [{"table": "Cur", "why": "Standard table."}],
+                "roles": [{"code": "e", "name": "E", "rules": [
+                    {"tables": ["Cur"], "privileges": ["read"], "depth": "user"}]}]}
+        rs = secgen.RoleSet(spec, model({"Cur": entity()}), "wga")
+        self.assertTrue(any("declared outOfScope but granted by e" in e
+                            for e in rs.errors), rs.errors)
+
+    def test_an_out_of_scope_table_granted_by_nobody_stays_clean(self):
+        spec = {"outOfScope": [{"table": "Cur", "why": "Standard table."}],
+                "roles": [{"code": "e", "name": "E", "rules": [
+                    {"tables": ["T"], "privileges": ["read"], "depth": "user"}]}]}
+        rs = secgen.RoleSet(spec, model({"T": entity(), "Cur": entity()}), "wga")
+        self.assertEqual(rs.errors, [])
+
     def test_out_of_scope_table_not_in_profile_is_an_error(self):
         spec = {"outOfScope": [{"table": "Ghost", "why": "x"}], "roles": []}
         rs = secgen.RoleSet(spec, model({"T": entity()}), "wga")
@@ -296,6 +314,86 @@ class TestRealPhase1Roles(unittest.TestCase):
         for code, role in self.rs.roles.items():
             self.assertTrue(role["rationale"], code)
             self.assertTrue(role["description"], code)
+
+
+class TestRealTravelRoles(unittest.TestCase):
+    """The travel roles file, which is also the SharePoint permission spec."""
+
+    @classmethod
+    def setUpClass(cls):
+        model_file = ROOT / "build" / "travel-starter.model.json"
+        if not model_file.exists():
+            raise unittest.SkipTest(
+                "run: python tools/schematool.py export --profile travel-starter")
+        cls.rs = secgen.RoleSet(
+            yaml.safe_load((ROOT / "security" / "travel-roles.yaml")
+                           .read_text(encoding="utf-8")),
+            json.loads(model_file.read_text(encoding="utf-8")),
+            "nwd",
+        )
+
+    def test_no_errors_and_no_warnings(self):
+        self.assertEqual(self.rs.errors, [])
+        self.assertEqual(self.rs.warnings, [])
+
+    def test_three_personas(self):
+        self.assertEqual(set(self.rs.roles),
+                         {"traveller", "approver", "travelAdmin"})
+
+    def test_an_approver_sees_the_teams_trips_but_not_their_passports(self):
+        """The Phase 4 boundary. An approver needs the team's trips and claims;
+        a passport number is the travel desk's business and nobody else's."""
+        approver = self.rs.roles["approver"]["effectiveGrants"]
+        self.assertEqual(approver["TripRequest"]["read"], "businessUnit")
+        for table in ("TravellerProfile", "TravelDocument", "LoyaltyMembership"):
+            self.assertEqual(approver[table]["read"], "user", table)
+
+    def test_the_desk_holds_the_restricted_tables(self):
+        desk = self.rs.roles["travelAdmin"]["effectiveGrants"]
+        for table in ("TravellerProfile", "TravelDocument"):
+            self.assertEqual(desk[table]["read"], "parentChild", table)
+
+    def test_a_traveller_runs_their_own_trip_and_claim_end_to_end(self):
+        traveller = self.rs.roles["traveller"]["effectiveGrants"]
+        for table in ("TripRequest", "ExpenseReport", "ExpenseLine"):
+            for privilege in ("create", "read", "write", "delete"):
+                self.assertEqual(traveller[table].get(privilege), "user",
+                                 f"{table}.{privilege}")
+
+    def test_a_traveller_cannot_edit_the_policy_or_the_rates(self):
+        traveller = self.rs.roles["traveller"]["effectiveGrants"]
+        for table in ("TravelPolicy", "PerDiemRate", "DestinationAdvisory"):
+            self.assertEqual(set(traveller[table]), {"read"}, table)
+        self.assertNotIn("CorporateRate", traveller)
+
+    def test_every_role_has_a_rationale(self):
+        for code, role in self.rs.roles.items():
+            self.assertTrue(role["rationale"], code)
+            self.assertTrue(role["description"], code)
+
+
+class TestOutputDirectoryIsOwned(unittest.TestCase):
+    def test_a_role_file_from_an_earlier_run_is_removed(self):
+        """solgen packs whatever is in roles/, so a leftover file is a
+        privilege grant nobody asked for — three HR roles once shipped in the
+        travel solution this way."""
+        import tempfile
+        model_file = ROOT / "build" / "travel-starter.model.json"
+        if not model_file.exists():
+            self.skipTest("run: python tools/schematool.py export --profile travel-starter")
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "security"
+            (out / "roles").mkdir(parents=True)
+            stale = out / "roles" / "hrAdmin.json"
+            stale.write_text("{}", encoding="utf-8")
+            code = secgen.main(["--profile", "travel-starter", "--prefix", "nwd",
+                                "--roles", str(ROOT / "security" / "travel-roles.yaml"),
+                                "--out", str(out)])
+            self.assertEqual(code, 0)
+            self.assertFalse(stale.exists())
+            self.assertEqual(
+                sorted(p.stem for p in (out / "roles").glob("*.json")),
+                ["approver", "travelAdmin", "traveller"])
 
 
 if __name__ == "__main__":

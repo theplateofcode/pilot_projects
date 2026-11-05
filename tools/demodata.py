@@ -250,6 +250,68 @@ PIPELINE_STAGES = [
 ]
 
 
+# Destinations the demo travels to, with a plausible risk level and a one-way
+# flight cost and emissions figure. Risk is what drives the duty-of-care page,
+# so the mix deliberately includes places that need security approval.
+# Every country here must be in the core Country seed, because a trip's
+# destinationCountry is a lookup at it. test_demodata enforces that.
+DESTINATIONS = [
+    {"city": "Dublin", "country": "IE", "cost": 180, "co2": 95, "risk": "low",
+     "hours": 1.5, "share": 0.11},
+    {"city": "Amsterdam", "country": "NL", "cost": 210, "co2": 110, "risk": "low",
+     "hours": 1.5, "share": 0.13},
+    {"city": "Frankfurt", "country": "DE", "cost": 240, "co2": 125, "risk": "low",
+     "hours": 2.0, "share": 0.12},
+    {"city": "Paris", "country": "FR", "cost": 170, "co2": 90, "risk": "low",
+     "hours": 1.5, "share": 0.12},
+    {"city": "New York", "country": "US", "cost": 980, "co2": 1_050, "risk": "low",
+     "hours": 8.0, "share": 0.14},
+    {"city": "Toronto", "country": "CA", "cost": 860, "co2": 980, "risk": "low",
+     "hours": 8.0, "share": 0.07},
+    {"city": "Dubai", "country": "AE", "cost": 1_150, "co2": 1_250, "risk": "medium",
+     "hours": 7.0, "share": 0.09},
+    {"city": "Mumbai", "country": "IN", "cost": 1_050, "co2": 1_400, "risk": "high",
+     "hours": 9.0, "share": 0.10},
+    {"city": "Singapore", "country": "SG", "cost": 1_280, "co2": 1_900, "risk": "low",
+     "hours": 13.0, "share": 0.05},
+    {"city": "Tokyo", "country": "JP", "cost": 1_320, "co2": 1_850, "risk": "low",
+     "hours": 12.0, "share": 0.04},
+    {"city": "Sydney", "country": "AU", "cost": 1_450, "co2": 2_400, "risk": "low",
+     "hours": 22.0, "share": 0.03},
+]
+RISK_RANK = {"low": 1, "medium": 2, "high": 3, "extreme": 4}
+
+# What a trip's expenses are made of, as a share of the claim.
+# Each category carries the typical spend and the policy limit it is judged
+# against, so an over-limit line is the natural consequence of the draw rather
+# than a flag set at random. HOTEL is per night and its limit matches the
+# generated TravelPolicy's maxHotelRatePerNight; the rest are per line.
+EXPENSE_MIX = [
+    {"code": "HOTEL", "share": 0.30, "nightly": True, "typical": 150, "cap": 220},
+    {"code": "MEALS", "share": 0.18, "typical": 45, "cap": 70},
+    {"code": "TAXI", "share": 0.14, "typical": 40, "cap": 60},
+    {"code": "AIR", "share": 0.12, "typical": 600, "cap": 900},
+    {"code": "RAIL", "share": 0.08, "typical": 165, "cap": 250},
+    {"code": "PARKING", "share": 0.06, "typical": 55, "cap": 80},
+    {"code": "COMMS", "share": 0.05, "typical": 33, "cap": 50},
+    {"code": "CONF_FEES", "share": 0.04, "typical": 800, "cap": 1200},
+    {"code": "VISA_FEES", "share": 0.03, "typical": 135, "cap": 200},
+]
+# Every limit sits at about 1.5x the typical value, and the multiplier below is
+# drawn from [0.45, 1.65), so roughly one line in eight breaches its category
+# limit. A claim set where nothing is ever over is not worth reviewing.
+EXPENSE_SPREAD = (0.45, 1.65)
+# Rank of a cabin class, so "above the policy's class" is a comparison rather
+# than a hardcoded list of offending values.
+CABIN_RANK = {"economy": 1, "premiumEconomy": 2, "business": 3, "first": 4}
+
+MERCHANTS = [
+    "Skyline Airways", "Harbourview Hotel", "City Rail", "Metro Cabs",
+    "Northgate Parking", "Riverside Bistro", "Summit Conferences",
+    "Waypoint Car Hire", "Transit Telecom", "Gateway Lounge",
+]
+
+
 class DataError(Exception):
     pass
 
@@ -363,6 +425,10 @@ class Firm:
             ("intake compliance", ("ConflictCheck", "DueDiligenceCheck",
                                    "ConsentRecord"), self.build_intake_compliance),
             ("matters", ("ProjectType", "Project"), self.build_matters),
+            ("travel", ("TravelPolicy", "DestinationAdvisory", "PerDiemRate",
+                        "TripRequest", "TripSegment", "TravelBooking",
+                        "ExpenseReport", "ExpenseLine", "CardTransaction"),
+             self.build_travel),
         )
         for label, tables, builder in sections:
             missing = [t for t in tables if t not in self.entities]
@@ -1639,6 +1705,346 @@ class Firm:
                     billingPartner=self.random.choice(partners)["employeeNumber"],
                     clientMatterReference=f"{pitch['account']['code']}/{index:03d}"),
             })
+
+    # -- Travel --------------------------------------------------------------
+    def build_travel(self) -> None:
+        """Trips, bookings, expense claims and the corporate card feed.
+
+        Shaped so every page of the travel dashboard has something to say: a
+        few people are away right now, some of them somewhere the firm classes
+        as high risk, a minority of trips breach the policy, and a handful of
+        card transactions are unexplained. A travel dashboard where nothing is
+        out of policy and nothing is unmatched is a dashboard nobody needs.
+        """
+        travellers = [p for p in self.employees if p["_left"] is None]
+        if not travellers:
+            self.warnings.append("no active staff, so no travel was generated")
+            return
+
+        currency = self.config.firm["currency"]
+        # The policy, the advisories and the per diem rates are all effective
+        # dated: they are the version in force now, so they start at the
+        # beginning of the current travel year and have no end.
+        policy_from = self.iso(dt.date(TODAY.year, 1, 1))
+        self.add("TravelPolicy", {
+            "code": "POL-TRAVEL", "name": f"{self.config.name} travel policy",
+            "legalEntity": self.config.firm["code"],
+            "domesticCabinClass": "economy",
+            "internationalCabinClass": "economy",
+            "longHaulThresholdHours": 8,
+            "longHaulCabinClass": "premiumEconomy",
+            "maxHotelRatePerNight": 220.0,
+            "currency": currency,
+            "minAdvanceBookingDays": 14,
+            "preApprovalRequired": True,
+            "validFrom": policy_from,
+        })
+
+        for destination in DESTINATIONS:
+            if destination["risk"] in ("low",):
+                continue
+            self.add("DestinationAdvisory", {
+                "code": f"ADV-{destination['country']}",
+                "title": f"{destination['city']} — {destination['risk']} risk",
+                "country": destination["country"],
+                "riskLevel": destination["risk"],
+                "summary": f"Standing advisory for travel to {destination['city']}.",
+                "requiresSecurityApproval": destination["risk"] in ("high", "extreme"),
+                "validFrom": policy_from,
+            })
+
+        for destination in DESTINATIONS:
+            self.add("PerDiemRate", {
+                "code": f"PD-{destination['country']}-{destination['city'][:3].upper()}",
+                "name": f"{destination['city']} per diem",
+                "country": destination["country"], "city": destination["city"],
+                "lodgingRate": float(min(destination["cost"], 260)),
+                "mealsRate": 55.0, "incidentalsRate": 12.0,
+                "currency": currency, "source": "HMRC published rates",
+                "validFrom": policy_from,
+            })
+
+        trips = max(30, self.people)
+        card_index = 0
+        line_index = 0
+        segment_index = 0
+        booking_index = 0
+        report_index = 0
+
+        # Duty of care is the one tile a travel system is bought for, and the
+        # one it is judged on in the first minute of a demo. Left to the draw,
+        # "somebody risky, away right now" is the product of two small
+        # probabilities and reads zero more often than not, so the first trip
+        # is that case by construction.
+        riskiest = max(DESTINATIONS, key=lambda d: RISK_RANK[d["risk"]])
+
+        for index in range(1, trips + 1):
+            traveller = self.random.choice(travellers)
+            duty_of_care_case = index == 1
+            destination = (riskiest if duty_of_care_case
+                           else self.pick_weighted(DESTINATIONS))
+            purpose = self.random.choice(
+                ["CLIENT_MEETING", "CONFERENCE", "TRAINING", "INTERNAL", "BUS_DEV"])
+            nights = self.random.randint(1, 4 if destination["hours"] < 4 else 6)
+
+            # A spread across past, present and future, so "away now" is not zero.
+            roll = 0.0 if duty_of_care_case else self.random.random()
+            if roll < 0.10:
+                # Departed, not yet back: nights - 1 at most, so the return
+                # date is always still ahead and the trip is genuinely in
+                # flight rather than landing today.
+                departure = TODAY - dt.timedelta(
+                    days=self.random.randint(0, nights - 1))
+            elif roll < 0.62:
+                departure = self.date_between(TODAY - dt.timedelta(days=300),
+                                              TODAY - dt.timedelta(days=nights + 1))
+            else:
+                departure = self.date_between(TODAY + dt.timedelta(days=3),
+                                              TODAY + dt.timedelta(days=120))
+            ret = departure + dt.timedelta(days=nights)
+
+            if ret < TODAY:
+                status = self.pick_weighted([
+                    {"code": "completed", "share": 0.86},
+                    {"code": "cancelled", "share": 0.09},
+                    {"code": "rejected", "share": 0.05}])["code"]
+            elif departure <= TODAY <= ret:
+                status = "inProgress"
+            else:
+                status = self.pick_weighted([
+                    {"code": "booked", "share": 0.52},
+                    {"code": "approved", "share": 0.20},
+                    {"code": "submitted", "share": 0.18},
+                    {"code": "booking", "share": 0.10}])["code"]
+
+            # Booked late, or in a cabin above the class the policy allows for
+            # that haul. Both are judged against the TravelPolicy row above
+            # rather than against numbers repeated here.
+            advance = self.pick_weighted([
+                {"code": 3, "share": 0.03}, {"code": 7, "share": 0.04},
+                {"code": 10, "share": 0.04}, {"code": 14, "share": 0.13},
+                {"code": 21, "share": 0.22}, {"code": 30, "share": 0.24},
+                {"code": 45, "share": 0.18}, {"code": 60, "share": 0.12},
+            ])["code"]
+            booked_on = departure - dt.timedelta(days=advance)
+            long_haul = destination["hours"] >= 8
+            if long_haul:
+                cabin = self.pick_weighted([
+                    {"code": "premiumEconomy", "share": 0.62},
+                    {"code": "economy", "share": 0.33},
+                    {"code": "business", "share": 0.05}])["code"]
+                allowed = "premiumEconomy"
+            else:
+                cabin = self.pick_weighted([
+                    {"code": "economy", "share": 0.95},
+                    {"code": "business", "share": 0.05}])["code"]
+                allowed = "economy"
+            out_of_policy = (advance < 14
+                             or CABIN_RANK[cabin] > CABIN_RANK[allowed])
+
+            code = f"TRIP-{index:05d}"
+            cost = float(destination["cost"] * 2 + nights * 180)
+            self.add("TripRequest", {
+                "code": code,
+                "title": f"{destination['city']} — {purpose.replace('_', ' ').title()}",
+                "traveller": traveller["employeeNumber"],
+                "requestedBy": traveller["employeeNumber"],
+                "purpose": purpose,
+                "businessJustification":
+                    f"{purpose.replace('_', ' ').title()} in {destination['city']}.",
+                "tripType": "domestic" if destination["country"]
+                            == self.config.firm["country"] else "international",
+                "status": status,
+                "departureDate": self.iso(departure),
+                "returnDate": self.iso(ret),
+                "origin": self.config.offices[0]["city"],
+                "originCountry": self.config.firm["country"],
+                "destination": destination["city"],
+                "destinationCountry": destination["country"],
+                "costCenter": f"CC-{traveller['_dept']['code']}",
+                "currency": currency,
+                "estimatedCost": cost,
+                "actualCost": cost if status == "completed" else None,
+                "isOutOfPolicy": out_of_policy,
+                "visaRequired": destination["country"] in ("IN", "AE", "AU", "US"),
+                "highestRiskLevel": destination["risk"],
+                "isBillable": purpose == "CLIENT_MEETING",
+                "submittedOn": f"{self.iso(booked_on - dt.timedelta(days=2))}T09:00:00Z",
+            })
+
+            if status in ("rejected", "submitted"):
+                continue        # nothing is booked until it is approved
+
+            # The outbound flight and the hotel.
+            segment_index += 1
+            self.add("TripSegment", {
+                "code": f"{code}-S1",
+                "name": f"{self.config.offices[0]['city']} to {destination['city']}",
+                "trip": code, "sequence": 1, "segmentType": "flight",
+                "startOn": f"{self.iso(departure)}T08:00:00Z",
+                "endOn": f"{self.iso(departure)}T"
+                         f"{min(8 + int(destination['hours']), 23):02d}:00:00Z",
+                "fromLocation": self.config.offices[0]["city"],
+                "toLocation": destination["city"],
+            })
+            booking_index += 1
+            booking_status = ("cancelled" if status == "cancelled"
+                              else "ticketed" if ret < TODAY else "confirmed")
+            self.add("TravelBooking", {
+                "code": f"{code}-B1",
+                "name": f"Flight to {destination['city']}",
+                "trip": code, "segment": f"{code}-S1",
+                "bookingType": "flight", "status": booking_status,
+                "channel": self.pick_weighted([
+                    {"code": "travelManagementCompany", "share": 0.52},
+                    {"code": "onlineBookingTool", "share": 0.30},
+                    {"code": "directWithSupplier", "share": 0.11},
+                    {"code": "bookedByTraveller", "share": 0.07}])["code"],
+                "supplierName": "Skyline Airways",
+                "fromLocation": self.config.offices[0]["city"],
+                "toLocation": destination["city"],
+                "startOn": f"{self.iso(departure)}T08:00:00Z",
+                "endOn": f"{self.iso(ret)}T20:00:00Z",
+                "cabinClass": cabin,
+                "baseFare": float(destination["cost"] * 2 * 0.82),
+                "taxesAndFees": float(destination["cost"] * 2 * 0.18),
+                "totalCost": float(destination["cost"] * 2),
+                "currency": currency,
+                "isInPolicy": not out_of_policy,
+                "isRefundable": cabin != "economy",
+                "bookedOn": f"{self.iso(booked_on)}T11:00:00Z",
+                "co2Kg": float(destination["co2"] * 2),
+                "bookedBy": traveller["employeeNumber"],
+            })
+
+            if status != "completed":
+                continue        # a claim follows the trip
+
+            # The expense claim, and the card transactions behind it.
+            report_index += 1
+            report_code = f"EXP-{report_index:05d}"
+            submitted = ret + dt.timedelta(days=self.random.randint(1, 21))
+            if submitted > TODAY:
+                submitted = TODAY
+            claim_status = self.pick_weighted([
+                {"code": "paid", "share": 0.62},
+                {"code": "approved", "share": 0.16},
+                {"code": "submitted", "share": 0.16},
+                {"code": "rejected", "share": 0.06}])["code"]
+            paid_on = (submitted + dt.timedelta(days=self.random.choice(
+                [3, 5, 7, 9, 12, 16, 24, 31])) if claim_status == "paid" else None)
+            if paid_on and paid_on > TODAY:
+                paid_on = TODAY
+
+            claim_total = 0.0
+            reimbursable = 0.0
+            lines = []
+            for item in EXPENSE_MIX:
+                if self.random.random() > 0.55:
+                    continue
+                nights_factor = nights if item.get("nightly") else 1
+                unit = round(item["typical"]
+                             * self.random.uniform(*EXPENSE_SPREAD), 2)
+                amount = round(unit * nights_factor, 2)
+                method = self.pick_weighted([
+                    {"code": "corporateCard", "share": 0.62},
+                    {"code": "personalCard", "share": 0.28},
+                    {"code": "cash", "share": 0.10}])["code"]
+                over_cap = unit > item["cap"]
+                lines.append((item["code"], amount, method, over_cap))
+                claim_total += amount
+                if method != "corporateCard":
+                    reimbursable += amount
+
+            if not lines:
+                continue
+
+            self.add("ExpenseReport", {
+                "code": report_code,
+                "title": f"{destination['city']} — {self.iso(departure)}",
+                "employee": traveller["employeeNumber"], "trip": code,
+                "status": claim_status,
+                "periodStart": self.iso(departure), "periodEnd": self.iso(ret),
+                "currency": currency,
+                "totalAmount": round(claim_total, 2),
+                "reimbursableAmount": round(reimbursable, 2),
+                "costCenter": f"CC-{traveller['_dept']['code']}",
+                "submittedOn": f"{self.iso(submitted)}T17:00:00Z",
+                "approvedOn": f"{self.iso(submitted + dt.timedelta(days=2))}T10:00:00Z"
+                if claim_status in ("approved", "paid") else None,
+                "paidOn": self.iso(paid_on),
+            })
+
+            for category, amount, method, over_cap in lines:
+                line_index += 1
+                spent_on = self.date_between(departure, ret)
+                card_code = None
+                if method == "corporateCard":
+                    card_index += 1
+                    card_code = f"CARD-{card_index:05d}"
+                    self.add("CardTransaction", {
+                        "code": card_code,
+                        "name": f"{self.random.choice(MERCHANTS)} "
+                                f"{self.iso(spent_on)}",
+                        "cardholder": traveller["employeeNumber"],
+                        "transactionDate": self.iso(spent_on),
+                        "postedDate": self.iso(spent_on + dt.timedelta(days=2)),
+                        "merchant": self.random.choice(MERCHANTS),
+                        "amount": amount, "currency": currency,
+                        "status": "matched",
+                    })
+                self.add("ExpenseLine", {
+                    "code": f"{report_code}-L{line_index}",
+                    "report": report_code,
+                    "description": f"{category.replace('_', ' ').title()} in "
+                                   f"{destination['city']}",
+                    "expenseDate": self.iso(spent_on),
+                    "category": category,
+                    "merchant": self.random.choice(MERCHANTS),
+                    "paymentMethod": method,
+                    "originalAmount": amount, "originalCurrency": currency,
+                    "amount": amount, "currency": currency,
+                    "isReimbursable": method != "corporateCard",
+                    "isBillable": purpose == "CLIENT_MEETING",
+                    "isOutOfPolicy": over_cap,
+                    "cardTransaction": card_code,
+                })
+
+        self.notes.append(
+            f"one trip is in flight to {riskiest['city']} ({riskiest['risk']} "
+            "risk) by construction, so the duty-of-care page is never zero")
+        self._ensure_unmatched_card_spend(travellers, currency)
+
+    def _ensure_unmatched_card_spend(self, travellers: list[dict[str, Any]],
+                                     currency: str) -> None:
+        """Corporate card spend nobody has explained yet.
+
+        Every transaction generated above is matched to an expense line, so the
+        card page would read zero on every tile. Unexplained company money is
+        the whole reason that page exists, so some is created deliberately —
+        including one old enough to be embarrassing.
+        """
+        wanted = max(6, self.people // 8)
+        start = len(self.rows.get("CardTransaction", [])) + 1
+        for offset in range(wanted):
+            traveller = self.random.choice(travellers)
+            age = (self.random.randint(60, 150) if offset == 0
+                   else self.random.randint(3, 55))
+            spent_on = TODAY - dt.timedelta(days=age)
+            self.add("CardTransaction", {
+                "code": f"CARD-{start + offset:05d}",
+                "name": f"{self.random.choice(MERCHANTS)} {self.iso(spent_on)}",
+                "cardholder": traveller["employeeNumber"],
+                "transactionDate": self.iso(spent_on),
+                "postedDate": self.iso(spent_on + dt.timedelta(days=2)),
+                "merchant": self.random.choice(MERCHANTS),
+                "amount": round(self.random.uniform(22, 480), 2),
+                "currency": currency,
+                "status": "disputed" if offset == 1 else "unmatched",
+            })
+        self.notes.append(
+            f"{wanted} card transaction(s) left unmatched on purpose, the oldest "
+            "over two months old, so the reconciliation page is not all zeros")
 
 # --- validation --------------------------------------------------------------
 class Validator:

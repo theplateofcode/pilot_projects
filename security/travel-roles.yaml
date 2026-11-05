@@ -1,0 +1,214 @@
+# Phase 4 security roles — the Travel Portal.
+#
+# Travel is the Microsoft-365-licences-only tier, so this pilot runs on
+# SharePoint lists and a canvas app. These roles are written for the Dataverse
+# re-platforming the roadmap plans in Phase 7, and they double as the
+# specification for the SharePoint permissions: SharePoint has no column-level
+# security, so the two restricted lists (TravellerProfile, TravelDocument) must
+# have their inheritance broken, and tools/spgen.py reports exactly that.
+#
+#   python tools/secgen.py --profile travel-starter --prefix nwd \
+#       --roles security/travel-roles.yaml
+
+meta:
+  profile: travel-starter
+  prefix: nwd
+  businessUnitStrategy: >
+    Northwind is a single legal entity, so one root business unit. The depths
+    below still distinguish own-row from firm-wide, which is what matters;
+    parentChild and organization behave identically here and would diverge if a
+    second entity were added.
+
+columnProfiles:
+  - name: Travel Sensitive Columns
+    description: >
+      Contact details, negotiated rate codes and a booking's confirmation code —
+      which is enough to change or cancel somebody else's flight.
+    columns:
+      - Employee.mobilePhone
+      - Account.taxNumber
+      - Contact.email
+      - Contact.businessPhone
+      - Contact.mobilePhone
+      - Contact.address
+      - CorporateRate.rateCode
+      - TravelBooking.confirmationCode
+    readFor: [travelAdmin]
+    writeFor: [travelAdmin]
+    readAlso:
+      traveller: [TravelBooking.confirmationCode]
+
+outOfScope:
+  - table: Currency
+    why: The standard transactioncurrency table; read access comes with the basic privileges.
+  - table: ExchangeRate
+    why: >
+      Dataverse provides the exchange rate table itself, so there is no custom
+      table to grant on. The desk needs to read it to convert an expense from
+      its original currency; that privilege is part of the standard
+      transactioncurrency access and is set by hand if it ever needs narrowing.
+
+roles:
+  # ---------------------------------------------------------------------------
+  - code: traveller
+    name: Travel – Traveller
+    description: >
+      Anyone who travels. Raises trip requests, claims expenses and sees their
+      own bookings and card transactions. Cannot see anyone else's passport,
+      loyalty numbers or claims.
+    appliesTo: All staff, assigned through an Entra group.
+    rules:
+      # Currency is not here: it is the standard transactioncurrency table and
+      # is declared outOfScope above, so granting it here as well would make
+      # the matrix say two different things about the same table.
+      - tables: [TravelPolicy, TravelPurpose, ExpenseCategory, PerDiemRate,
+                 DestinationAdvisory, Country, Language, Office,
+                 OrgUnit, CostCenter, LegalEntity, Employee]
+        privileges: [read]
+        depth: organization
+        why: >
+          Policy, per diems and the destination advisories must be readable
+          before a trip is requested — a traveller who cannot see the advisory
+          cannot know a trip needs security approval.
+
+      - tables: [TripRequest, TripSegment]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: user
+        why: >
+          Raise, edit and withdraw their own trip. Write is needed only while it
+          is a draft; the flow locks it on submission.
+
+      - tables: [ExpenseReport, ExpenseLine]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: user
+        why: Their own claims, including deleting a line before submitting.
+
+      - tables: [TravelBooking]
+        privileges: [read]
+        depth: user
+        why: >
+          See their own itinerary. Not write: a booking is made by the travel
+          desk or the online tool, and a traveller editing the record does not
+          change the ticket.
+
+      - tables: [CardTransaction]
+        privileges: [read, write]
+        depth: user
+        why: >
+          Match their own corporate card transactions to a claim, or mark one
+          personal. Write without create or delete, because the rows come from
+          the card provider's feed and inventing or deleting one hides spend.
+
+      - tables: [TravellerProfile, LoyaltyMembership, TravelDocument]
+        privileges: [read, write]
+        depth: user
+        why: >
+          Maintain their own booking profile, loyalty numbers and passport
+          details. Restricted tables, but only ever their own row.
+
+      - tables: [ApprovalRequest, ApprovalStep]
+        privileges: [read]
+        depth: user
+        why: Track an approval they raised or that is assigned to them.
+
+      - tables: [DocumentReference, Comment]
+        privileges: [create, read, write, delete]
+        depth: user
+        why: Attach a receipt photo and comment on their own claim.
+
+    denied:
+      tables: [CorporateRate]
+      why: >
+        Negotiated supplier rates are commercially confidential, and a rate code
+        in the wrong hands is a discount the firm did not agree to give.
+
+  # ---------------------------------------------------------------------------
+  - code: approver
+    name: Travel – Approver
+    description: >
+      A line manager or budget holder. Everything a traveller has, plus their
+      team's trips and claims, and the ability to approve them. Still cannot see
+      a passport or a loyalty number.
+    appliesTo: Assigned alongside Traveller, not instead of it.
+    inherits: traveller
+    rules:
+      - tables: [TripRequest, TripSegment, ExpenseReport, ExpenseLine,
+                 TravelBooking, CardTransaction]
+        privileges: [read]
+        depth: businessUnit
+        why: >
+          See the team's trips, claims and spend. As in Phase 1, Dataverse depth
+          cannot express "my direct reports", so the app's views filter to the
+          current user's reports and the role is the floor.
+
+      - tables: [TripRequest, ExpenseReport]
+        privileges: [write]
+        depth: businessUnit
+        why: >
+          Record a decision, and adjust an amount by agreement before approving.
+
+      - tables: [ApprovalRequest, ApprovalStep]
+        privileges: [read, write]
+        depth: businessUnit
+        why: Approve or reject a step assigned to them.
+
+    denied:
+      tables: [TravellerProfile, TravelDocument, LoyaltyMembership]
+      why: >
+        The Phase 4 equivalent of the compensation boundary. An approver needs
+        to know a trip is to Lagos and costs £1,800; they do not need the
+        traveller's passport number or date of birth. Their own rows stay
+        readable through the inherited Traveller role at user depth.
+
+  # ---------------------------------------------------------------------------
+  - code: travelAdmin
+    name: Travel – Travel Desk
+    description: >
+      The travel desk and the finance team who process claims. Books travel,
+      reconciles the card feed, and owns the policy and rate data.
+    appliesTo: A small named team, reviewed quarterly.
+    rules:
+      - tables: [TripRequest, TripSegment, TravelBooking, ExpenseReport,
+                 ExpenseLine, CardTransaction, TravellerProfile,
+                 LoyaltyMembership, TravelDocument]
+        privileges: [create, read, write, delete, append, appendTo, assign, share]
+        depth: parentChild
+        why: >
+          The desk books on a traveller's behalf, which needs their passport
+          name and date of birth — so this role holds the restricted tables and
+          the approver role does not.
+
+      - tables: [TravelPolicy, TravelPurpose, ExpenseCategory, PerDiemRate,
+                 CorporateRate, DestinationAdvisory, HolidayCalendar, Holiday]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: organization
+        why: >
+          The desk maintains the policy, the per diems, the negotiated rates and
+          the duty-of-care advisories.
+
+      - tables: [Employee, OrgUnit, CostCenter, Office, LegalEntity, Country,
+                 Language, TermSet, Term, Account, Contact]
+        privileges: [read]
+        depth: organization
+        why: >
+          Read the directory and the supplier records. Not write — suppliers and
+          org structure belong to the finance and operations role.
+
+      - tables: [ApprovalPolicy, ApprovalPolicyStep]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: organization
+        why: The desk configures which chain applies to a trip or a claim.
+
+      - tables: [ApprovalRequest, ApprovalStep]
+        privileges: [create, read, write, delete, append, appendTo, assign]
+        depth: parentChild
+        why: Reassign a stuck approval and see the whole chain.
+
+      - tables: [DocumentReference, Comment]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: parentChild
+        why: Attach an itinerary or a receipt to any claim being processed.
+
+    denied:
+      tables: [AppSetting]
+      why: Environment configuration belongs to the system administrator.

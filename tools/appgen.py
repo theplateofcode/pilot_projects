@@ -87,7 +87,8 @@ class AppError(Exception):
 
 class Generator:
     def __init__(self, spec: dict[str, Any], model: dict[str, Any], prefix: str,
-                 roles: dict[str, Any] | None = None):
+                 roles: dict[str, Any] | None = None,
+                 out_of_scope: dict[str, str] | None = None):
         self.spec = spec
         self.model = model
         self.prefix = prefix.lower()
@@ -96,6 +97,11 @@ class Generator:
         self.enums: dict[str, Any] = model.get("enums", {})
         self.terminology: dict[str, Any] = model.get("terminology", {})
         self.roles = roles or {}
+        # Tables the roles file declares it deliberately does not grant on,
+        # with the reason. A standard Dataverse table such as ExchangeRate has
+        # no custom privilege to grant, so an empty grant is the expected state
+        # and not a hole in the site map.
+        self.out_of_scope = out_of_scope or {}
         self.errors: list[str] = []
         self.warnings: list[str] = []
         self.notes: list[str] = []
@@ -140,7 +146,11 @@ class Generator:
             grants = {r: (self.roles[r].get("effectiveGrants") or {}) for r in known}
             for table in self.tables:
                 can = [r for r in known if table in grants[r]]
-                if not can:
+                if not can and table in self.out_of_scope:
+                    self.notes.append(
+                        f"{table} is on the site map and granted outside the "
+                        f"roles file: {self.out_of_scope[table]}")
+                elif not can:
                     self.warnings.append(
                         f"'{table}' is on the site map but none of "
                         f"{', '.join(known)} can read it, so the sub-area is empty "
@@ -536,36 +546,36 @@ class Generator:
         return ET.tostring(element, encoding="unicode", xml_declaration=True)
 
 
-def load_roles(profile: str, prefix: str,
-               roles_file: Path | None = None) -> tuple[dict[str, Any], str | None]:
+def load_roles(profile: str, prefix: str, roles_file: Path | None = None
+               ) -> tuple[dict[str, Any], dict[str, str], str | None]:
     """The security roles, so the generator can check the app against them.
 
-    Returns (roles, why_not). The check is optional, but a silent skip is worse
-    than no check: an app pointed at the wrong roles file used to report nothing
-    at all, which looked like a pass.
+    Returns (roles, out_of_scope, why_not). The check is optional, but a silent
+    skip is worse than no check: an app pointed at the wrong roles file used to
+    report nothing at all, which looked like a pass.
     """
     roles_file = roles_file or ROOT / "security" / "phase1-roles.yaml"
     model_file = BUILD_DIR / f"{profile}.model.json"
     if not roles_file.exists():
-        return {}, f"{roles_file.name} does not exist"
+        return {}, {}, f"{roles_file.name} does not exist"
     if not model_file.exists():
-        return {}, f"{model_file.name} does not exist"
+        return {}, {}, f"{model_file.name} does not exist"
 
     spec = yaml.safe_load(roles_file.read_text(encoding="utf-8")) or {}
     declared = (spec.get("meta") or {}).get("profile")
     if declared and declared != profile:
-        return {}, (f"{roles_file.name} is written for the '{declared}' profile, "
-                    f"not '{profile}' — pass --roles")
+        return {}, {}, (f"{roles_file.name} is written for the '{declared}' "
+                        f"profile, not '{profile}' — pass --roles")
     try:
         import secgen
         role_set = secgen.RoleSet(
             spec, json.loads(model_file.read_text(encoding="utf-8")), prefix)
     except Exception as exc:               # noqa: BLE001 — report, do not hide
-        return {}, f"{roles_file.name} could not be read: {exc}"
+        return {}, {}, f"{roles_file.name} could not be read: {exc}"
     if role_set.errors:
-        return {}, (f"{roles_file.name} has {len(role_set.errors)} error(s); run "
-                    "tools/secgen.py to see them")
-    return role_set.roles, None
+        return {}, {}, (f"{roles_file.name} has {len(role_set.errors)} error(s); "
+                        "run tools/secgen.py to see them")
+    return role_set.roles, role_set.out_of_scope, None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -596,9 +606,9 @@ def main(argv: list[str] | None = None) -> int:
 
     spec = yaml.safe_load(app_file.read_text(encoding="utf-8"))
     model = json.loads(model_file.read_text(encoding="utf-8"))
-    roles, why_not = load_roles(args.profile, args.prefix,
-                                Path(args.roles) if args.roles else None)
-    generator = Generator(spec, model, args.prefix, roles)
+    roles, out_of_scope, why_not = load_roles(
+        args.profile, args.prefix, Path(args.roles) if args.roles else None)
+    generator = Generator(spec, model, args.prefix, roles, out_of_scope)
     if why_not:
         generator.notes.append(
             f"the site map was not checked against any role: {why_not}")

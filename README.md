@@ -6,13 +6,14 @@ HR** — built on one canonical, platform-neutral data model that can be deploye
 (pro-code apps), and adapted to **architecture, law, accounting, technology or any other firm** through
 overlay layers instead of copies.
 
-> **Status:** schema v1.0.0 validated. **Phases 1 and 2 are built from source** — HR for an accounting
-> firm and CRM for a law firm, each with its Dataverse build, security roles, model-driven app, approval
-> flows, Power BI model, SQL migrations, SharePoint template, solution package and demo firm, all
-> generated from the YAML and checked in CI. What remains for both is a tenant to apply them to, plus
-> the canvas app, the client portal and the report canvases. See the
-> [Phase 1](docs/06-phase1-core-hr.md) and [Phase 2](docs/08-phase2-crm.md) build guides, the
-> [generators](docs/07-generators.md), and the [plan and roadmap](docs/01-plan-and-roadmap.md).
+> **Status:** schema v1.0.0 validated. **Phases 1, 2 and 4 are built from source** — HR for an
+> accounting firm, CRM for a law firm and the Travel Portal for a generic firm, each with its Dataverse
+> build, security roles, model-driven app, approval flows, Power BI model, SQL migrations, SharePoint
+> template, solution package and demo firm, all generated from the YAML and checked in CI. What remains
+> for all three is a tenant to apply them to, plus the canvas apps, the client portal and the report
+> canvases. See the [Phase 1](docs/06-phase1-core-hr.md), [Phase 2](docs/08-phase2-crm.md) and
+> [Phase 4](docs/10-phase4-travel.md) build guides, the [generators](docs/07-generators.md), and the
+> [plan and roadmap](docs/01-plan-and-roadmap.md).
 
 ## What's here
 
@@ -25,6 +26,7 @@ overlay layers instead of copies.
 | [**Industry adaptation**](docs/05-industry-adaptation.md) | Same concept, different words; what each overlay adds; client adaptation playbook |
 | [**Phase 1 build guide**](docs/06-phase1-core-hr.md) | Build order, security design, the approval engine, the leave walkthrough, the dashboard, demo data |
 | [**Phase 2 build guide**](docs/08-phase2-crm.md) | CRM for a law firm: intake, conflicts, pipeline, the portal role, and what a second pilot actually cost |
+| [**Phase 4 build guide**](docs/10-phase4-travel.md) | The Travel Portal: one schema on two platforms, duty of care, and the fifteen SharePoint limits that are the deliverable |
 | [**Security review**](docs/09-security-review.md) | The tooling's credential, injection and demo-data surfaces, tested with hostile input |
 | [**The generators**](docs/07-generators.md) | What each of the nine tools takes, produces and checks; what the checks have caught; what is still done by hand |
 | [**Data dictionary**](docs/data-dictionary/README.md) | Every table and column with Dataverse / SharePoint / SQL mappings and ER diagrams (generated) |

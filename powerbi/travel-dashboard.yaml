@@ -1,0 +1,403 @@
+# Travel analytics dashboard — Phase 4.
+#
+#   python tools/pbigen.py --profile travel-starter --prefix nwd \
+#       --spec powerbi/travel-dashboard.yaml
+#
+# Four pages, and the order is the argument. Spend first, because that is who
+# asks for the report. Then duty of care — a travel system that cannot tell you
+# who is abroad right now has failed at the one job nobody forgives. Then policy
+# and card reconciliation, which are where the money leaks.
+
+meta:
+  name: Travel Analytics
+  description: Spend, duty of care, policy compliance and card reconciliation.
+  profile: travel-starter
+  prefix: nwd
+  storageMode: import
+  environmentParameter: DataverseEnvironment
+  defaultEnvironment: northwind-dev.crm11.dynamics.com
+  culture: en-GB
+
+tables:
+  - Employee
+  - OrgUnit
+  - CostCenter
+  - Office
+  - Country
+  - Account
+  - TripRequest
+  - TripSegment
+  - TravelPurpose
+  - TravelPolicy
+  - TravelBooking
+  - ExpenseReport
+  - ExpenseLine
+  - ExpenseCategory
+  - CardTransaction
+  - PerDiemRate
+  - DestinationAdvisory
+  - CorporateRate
+  - ApprovalRequest
+  - ApprovalStep
+
+# TravellerProfile, TravelDocument and LoyaltyMembership are not in the dataset.
+# A passport number, a date of birth and a frequent-flyer number have no
+# analytical use whatever, and a dataset is a copy under its own permissions —
+# so importing them would hand them to anyone who can open the report.
+hide:
+  - Employee.mobilePhone
+  - Account.taxNumber
+  - CorporateRate.rateCode
+  - TravelBooking.confirmationCode
+  - TravelBooking.ticketNumber
+  - CardTransaction.cardLast4
+
+dateTable:
+  name: Date
+  from: 2024-01-01
+  yearEndMonth: 12
+  markAsDateTable: true
+
+measures:
+  # --- Spend -----------------------------------------------------------------
+  - name: Trips
+    folder: Spend
+    format: "#,0"
+    description: Trip requests with a departure date in the period.
+    expression: "COUNTROWS( 'TripRequest' )"
+
+  - name: Travel Spend
+    folder: Spend
+    format: "\\£#,0;(\\£#,0)"
+    description: >
+      Booked cost, from the bookings rather than the trip estimates. An estimate
+      is what somebody hoped it would cost.
+    expression: |
+      CALCULATE( SUM( 'TravelBooking'[totalCost] ),
+                 'TravelBooking'[statusname] IN { "Confirmed", "Ticketed", "Changed" } )
+
+  - name: Avg Trip Cost
+    folder: Spend
+    format: "\\£#,0;(\\£#,0)"
+    expression: "DIVIDE( [Travel Spend], [Trips] )"
+    description: Booked cost per trip.
+
+  - name: Expense Claimed
+    folder: Spend
+    format: "\\£#,0;(\\£#,0)"
+    description: Submitted or approved claim value, which is not the same as booked cost.
+    expression: |
+      CALCULATE( SUM( 'ExpenseReport'[totalAmount] ),
+                 'ExpenseReport'[statusname] <> "Draft" )
+
+  - name: Reimbursable
+    folder: Spend
+    format: "\\£#,0;(\\£#,0)"
+    description: The part of a claim the firm owes the traveller personally.
+    expression: |
+      CALCULATE( SUM( 'ExpenseReport'[reimbursableAmount] ),
+                 'ExpenseReport'[statusname] <> "Draft" )
+
+  - name: Billable Spend
+    folder: Spend
+    format: "\\£#,0;(\\£#,0)"
+    description: Expense lines chargeable to a client rather than absorbed.
+    expression: |
+      CALCULATE( SUM( 'ExpenseLine'[amount] ), 'ExpenseLine'[isBillable] = TRUE() )
+
+  - name: Billable %
+    folder: Spend
+    format: "0.0%"
+    description: Share of expense value that is recoverable from a client.
+    expression: |
+      DIVIDE( [Billable Spend], SUM( 'ExpenseLine'[amount] ) )
+
+  # --- Duty of care ----------------------------------------------------------
+  - name: Travellers Away Now
+    folder: Duty of care
+    format: "#,0"
+    description: >
+      People whose trip has departed and not returned. The one number a travel
+      system must be able to answer within seconds of an incident.
+    expression: |
+      CALCULATE(
+          DISTINCTCOUNT( 'TripRequest'[traveller] ),
+          FILTER(
+              'TripRequest',
+              'TripRequest'[departureDate] <= TODAY()
+                  && 'TripRequest'[returnDate] >= TODAY()
+          ),
+          'TripRequest'[statusname] IN { "Booked", "Travelling" }
+      )
+
+  - name: Trips To High Risk
+    folder: Duty of care
+    format: "#,0"
+    description: Trips whose highest destination risk is high or extreme.
+    expression: |
+      CALCULATE( COUNTROWS( 'TripRequest' ),
+                 'TripRequest'[highestRiskLevelname] IN { "High", "Extreme" } )
+
+  - name: Travellers To High Risk Now
+    folder: Duty of care
+    format: "#,0"
+    description: >
+      The intersection that matters: away now, and somewhere risky.
+    expression: |
+      CALCULATE( [Travellers Away Now],
+                 'TripRequest'[highestRiskLevelname] IN { "High", "Extreme" } )
+
+  - name: Trips Needing A Visa
+    folder: Duty of care
+    format: "#,0"
+    description: Upcoming trips flagged as needing a visa — the thing that stops a trip.
+    expression: |
+      CALCULATE(
+          COUNTROWS( 'TripRequest' ),
+          'TripRequest'[visaRequired] = TRUE(),
+          FILTER( 'TripRequest', 'TripRequest'[departureDate] >= TODAY() )
+      )
+
+  # --- Policy ----------------------------------------------------------------
+  - name: Trips Out Of Policy
+    folder: Policy
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'TripRequest' ), 'TripRequest'[isOutOfPolicy] = TRUE() )
+    description: Trips approved despite breaching the policy.
+
+  - name: Out Of Policy %
+    folder: Policy
+    format: "0.0%"
+    description: >
+      The rate, not the count. A rising rate means the policy no longer matches
+      how the firm travels, which is a policy problem before it is a compliance
+      one.
+    expression: "DIVIDE( [Trips Out Of Policy], [Trips] )"
+
+  - name: Out Of Policy Expense Lines
+    folder: Policy
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'ExpenseLine' ), 'ExpenseLine'[isOutOfPolicy] = TRUE() )
+    description: Individual expense lines over a category limit.
+
+  - name: Bookings Out Of Policy
+    folder: Policy
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'TravelBooking' ), 'TravelBooking'[isInPolicy] = FALSE() )
+    description: Bookings made outside the policy's cabin or rate rules.
+
+  - name: Avg Advance Booking Days
+    folder: Policy
+    format: "#,0"
+    description: >
+      Days between booking and departure. The single biggest lever on air fare,
+      and the number a policy's minimum advance rule exists to move.
+    expression: |
+      AVERAGEX(
+          FILTER(
+              'TravelBooking',
+              NOT ISBLANK( 'TravelBooking'[bookedOn] )
+                  && NOT ISBLANK( 'TravelBooking'[startOn] )
+          ),
+          DATEDIFF( 'TravelBooking'[bookedOn], 'TravelBooking'[startOn], DAY )
+      )
+
+  - name: Booked Through The Tool %
+    folder: Policy
+    format: "0.0%"
+    description: >
+      Share booked through the agency or the online tool rather than by the
+      traveller. Off-channel booking is where duty-of-care data goes missing.
+    expression: |
+      DIVIDE(
+          CALCULATE( COUNTROWS( 'TravelBooking' ),
+                     'TravelBooking'[channelname] IN
+                     { "Travel Management Company", "Online Booking Tool" } ),
+          COUNTROWS( 'TravelBooking' )
+      )
+
+  # --- Card reconciliation ---------------------------------------------------
+  - name: Unmatched Card Transactions
+    folder: Card
+    format: "#,0"
+    description: >
+      Corporate card spend not yet tied to an expense line. Every one is
+      unexplained company money.
+    expression: |
+      CALCULATE( COUNTROWS( 'CardTransaction' ),
+                 'CardTransaction'[statusname] = "Unmatched" )
+
+  - name: Unmatched Card Value
+    folder: Card
+    format: "\\£#,0;(\\£#,0)"
+    expression: |
+      CALCULATE( SUM( 'CardTransaction'[amount] ),
+                 'CardTransaction'[statusname] = "Unmatched" )
+    description: The value of it.
+
+  - name: Oldest Unmatched Days
+    folder: Card
+    format: "#,0"
+    description: How long the oldest unexplained transaction has been sitting there.
+    expression: |
+      VAR Oldest =
+          CALCULATE( MIN( 'CardTransaction'[transactionDate] ),
+                     'CardTransaction'[statusname] = "Unmatched" )
+      RETURN IF( ISBLANK( Oldest ), 0, DATEDIFF( Oldest, TODAY(), DAY ) )
+
+  - name: Disputed Transactions
+    folder: Card
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'CardTransaction' ),
+                 'CardTransaction'[statusname] = "Disputed" )
+    description: Transactions the cardholder says are not theirs.
+
+  # --- Process ---------------------------------------------------------------
+  - name: Claims Awaiting Approval
+    folder: Process
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'ExpenseReport' ),
+                 'ExpenseReport'[statusname] = "Submitted" )
+    description: The approver's queue.
+
+  - name: Avg Days To Reimburse
+    folder: Process
+    format: "#,0.0"
+    description: >
+      Submission to payment. The number travellers actually judge the system
+      by, and the one a finance team never volunteers.
+    expression: |
+      AVERAGEX(
+          FILTER( 'ExpenseReport', NOT ISBLANK( 'ExpenseReport'[paidOn] ) ),
+          DATEDIFF( 'ExpenseReport'[submittedOn], 'ExpenseReport'[paidOn], DAY )
+      )
+
+  - name: Trips Awaiting Approval
+    folder: Process
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'TripRequest' ),
+                 'TripRequest'[statusname] = "Submitted" )
+    description: Trips that cannot be booked until somebody acts.
+
+  # --- Sustainability --------------------------------------------------------
+  - name: CO2 Tonnes
+    folder: Sustainability
+    format: "#,0.0"
+    description: >
+      Emissions from bookings that carry a figure. Reported in tonnes because
+      kilogrammes make a year's travel look like a rounding error.
+    expression: "DIVIDE( SUM( 'TravelBooking'[co2Kg] ), 1000 )"
+
+  - name: CO2 Kg Per Trip
+    folder: Sustainability
+    format: "#,0"
+    expression: "DIVIDE( SUM( 'TravelBooking'[co2Kg] ), [Trips] )"
+    description: Emissions per trip, which is the figure a target is set against.
+
+pages:
+  - name: Spend
+    description: The page the finance director opens.
+    visuals:
+      - { type: statTile, title: Trips, measure: Trips }
+      - { type: statTile, title: Travel spend, measure: Travel Spend }
+      - { type: statTile, title: Avg per trip, measure: Avg Trip Cost }
+      - { type: statTile, title: Claimed, measure: Expense Claimed }
+      - { type: statTile, title: Billable, measure: Billable % }
+      - { type: statTile, title: CO2 tonnes, measure: CO2 Tonnes }
+      - type: line
+        title: Travel spend by month
+        measures: [Travel Spend]
+        axis: Date.Year Month
+      - type: barHorizontal
+        title: Spend by cost centre
+        measures: [Travel Spend]
+        axis: CostCenter.name
+        dataLabels: true
+      - type: barHorizontal
+        title: Expense value by category
+        measures: [Billable Spend]
+        axis: ExpenseCategory.name
+        dataLabels: true
+      - type: barHorizontal
+        title: Trips by purpose
+        measures: [Trips]
+        axis: TravelPurpose.name
+        dataLabels: true
+
+  - name: Duty of care
+    description: >
+      Who is away, and where. A travel system that cannot answer this in seconds
+      has failed at the one job nobody forgives.
+    visuals:
+      - { type: statTile, title: Away now, measure: Travellers Away Now, status: true }
+      - { type: statTile, title: In a high-risk place now, measure: Travellers To High Risk Now, status: true }
+      - { type: statTile, title: Trips to high risk, measure: Trips To High Risk, status: true }
+      - { type: statTile, title: Needing a visa, measure: Trips Needing A Visa, status: true }
+      - type: barHorizontal
+        title: Trips by destination country
+        measures: [Trips]
+        axis: Country.name
+        dataLabels: true
+      - type: table
+        title: Who is away now
+        columns: [Employee.displayName, TripRequest.title, TripRequest.departureDate,
+                  TripRequest.returnDate, TripRequest.destination,
+                  TripRequest.highestRiskLevelname]
+        note: >
+          The operational list. Filtered to departed-and-not-returned, sorted by
+          return date, and the first thing anyone opens after an incident.
+
+  - name: Policy and channel
+    description: Where the money leaks.
+    visuals:
+      - { type: statTile, title: Out of policy, measure: Out Of Policy % , status: true }
+      - { type: statTile, title: Advance booking days, measure: Avg Advance Booking Days }
+      - { type: statTile, title: Booked through the tool, measure: Booked Through The Tool % }
+      - { type: statTile, title: Out-of-policy lines, measure: Out Of Policy Expense Lines, status: true }
+      - type: line
+        title: Out-of-policy rate by month
+        measures: [Out Of Policy %]
+        axis: Date.Year Month
+      - type: line
+        title: Average advance booking days by month
+        measures: [Avg Advance Booking Days]
+        axis: Date.Year Month
+        note: >
+          Its own chart, not a second axis on the one above: days and a
+          percentage share no scale.
+      - type: barHorizontal
+        title: Out-of-policy trips by cost centre
+        measures: [Trips Out Of Policy]
+        axis: CostCenter.name
+        dataLabels: true
+
+  - name: Cards and process
+    description: Unexplained spend, and how long people wait to be paid.
+    visuals:
+      - { type: statTile, title: Unmatched, measure: Unmatched Card Transactions, status: true }
+      - { type: statTile, title: Unmatched value, measure: Unmatched Card Value, status: true }
+      - { type: statTile, title: Oldest unmatched (days), measure: Oldest Unmatched Days, status: true }
+      - { type: statTile, title: Disputed, measure: Disputed Transactions, status: true }
+      - { type: statTile, title: Claims waiting, measure: Claims Awaiting Approval }
+      - { type: statTile, title: Days to reimburse, measure: Avg Days To Reimburse }
+      - type: line
+        title: Days to reimburse by month
+        measures: [Avg Days To Reimburse]
+        axis: Date.Year Month
+      - type: barHorizontal
+        title: Unmatched value by cardholder
+        measures: [Unmatched Card Value]
+        axis: Employee.displayName
+        dataLabels: true
+      - type: table
+        title: Unmatched transactions
+        columns: [CardTransaction.transactionDate, Employee.displayName,
+                  CardTransaction.merchant, CardTransaction.amount,
+                  CardTransaction.statusname]
+        note: Oldest first — the list the finance team chases.

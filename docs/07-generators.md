@@ -156,6 +156,11 @@ Not a list of features: these are defects the checks found in this repo's own ou
 | deriving the approvable tables from the model | three tables have no rejected-like status value, so a rejection had nowhere to go |
 | comparing five firms | the leave entitlement was hardcoded at 25 days, so Contoso's 20-day PTO and Fabrikam's 27 days were both ignored |
 | `sqlgen` executed against SQLite | nothing, after the first pass — which is the point of running the DDL rather than asserting on its text |
+| building the third pilot (Phase 4) | `secgen` did not delete role files from an earlier run, and `solgen` packs that directory wholesale, so **three HR security roles shipped inside the travel solution** — six roles in a solution that specifies three. Nothing failed; the manifest was internally consistent and simply wrong |
+| the same class, in `pbigen` | the travel Power BI project shipped a theme file named `WoodgroveHR.json` and a `pages.md` claiming it came from `hr-dashboard.yaml`, both hardcoded from the first report the tool ever generated |
+| `secgen`, after Phase 4 | a table declared `outOfScope` and then granted anyway, so the matrix said the travel desk could not read a currency every traveller could. Now an error |
+| evaluating every dashboard tile against generated rows | three Travel tiles read zero and the out-of-policy rate read 45%: expense lines were judged against a single hotel cap almost nothing could breach, and late booking was drawn uniformly from a list where three of eight options were late |
+| `demodata` lookup validation | `DESTINATIONS` gained a country the `Country` seed does not contain, so every trip to it was a dangling reference |
 | a code review of the generators | five more: `solgen` wrote its manifest before the last components were added, so a solution carrying forms on `account` and `contact` was short three components; `demodata`'s two-step leave policy was unreachable because leave was capped at ten days and the policy needed eleven; `spgen` set a lookup's list to a braced folder path, which is not a PnP token; `flowgen` prefixed a standard table's entity set, giving `wga_accounts` for `accounts`; and `appgen` pointed a view's click-through at `createdon` for a table whose primary column is generated |
 
 ## 5. How each one is tested
@@ -174,6 +179,7 @@ The tests are not uniform, because what is checkable differs by target.
 | `solgen` | every component has a file, every entity folder has its entity, every type code is one Dataverse uses |
 | `demodata` | every row against the model, plus four invariants the model implies |
 | all of them | [`test_consistency.py`](../tests/test_consistency.py) checks the seams, including that every generator runs with no errors and no warnings |
+| output directories | `secgen` and `pbigen` each have a test that reintroduces a stale file from an earlier run and asserts it is deleted, and `solgen` has one asserting it refuses to pack a role its input report does not name. With `appgen`'s per-profile output directory from Phase 2, that is four instances of one bug — a pattern, not bad luck |
 
 ```bash
 python -m unittest discover -s tests

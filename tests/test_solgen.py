@@ -88,6 +88,79 @@ class TestMissingInputs(unittest.TestCase):
         self.assertTrue(any("appgen.py" in w for w in plan["warnings"]))
 
 
+class TestStaleRoles(unittest.TestCase):
+    """A role file nobody generated this run must not be packaged.
+
+    secgen writes one JSON per role into a directory solgen then packs
+    wholesale. When the travel pilot was first built, three HR roles from an
+    earlier run were still sitting in that directory and went into the travel
+    solution — six roles in a solution that specified three, granting
+    privileges on tables the travel roles never mention.
+    """
+
+    def _tree(self, tmp, roles, report_codes):
+        import shutil
+        plan_dir = ROOT / "build" / "dataverse" / PROFILE
+        if not (plan_dir / "plan.json").exists():
+            self.skipTest("run tools/dvgen.py first")
+        build = Path(tmp)
+        target = build / "dataverse" / PROFILE
+        (target / "security" / "roles").mkdir(parents=True)
+        shutil.copy(plan_dir / "plan.json", target / "plan.json")
+        for code, name in roles:
+            (target / "security" / "roles" / f"{code}.json").write_text(
+                json.dumps({"_code": code,
+                            "role": {"name": name, "description": "d"},
+                            "addPrivileges": {"Privileges": []}}), encoding="utf-8")
+        if report_codes is not None:
+            (target / "security" / "report.json").write_text(
+                json.dumps({"roles": [{"code": c} for c in report_codes]}),
+                encoding="utf-8")
+        (build / "apps").mkdir()
+        return build
+
+    def _build(self, build):
+        original = solgen.BUILD_DIR
+        try:
+            solgen.BUILD_DIR = build
+            return solgen.Builder(PROFILE, PREFIX, "S1", "P", "1.0.0.0").build()
+        finally:
+            solgen.BUILD_DIR = original
+
+    def test_a_role_file_the_report_does_not_name_is_an_error(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            build = self._tree(tmp, [("traveller", "Travel – Traveller"),
+                                     ("hrAdmin", "HR – Administrator")],
+                               ["traveller"])
+            plan = self._build(build)
+        self.assertTrue(any("hrAdmin.json" in e and "stale" in e
+                            for e in plan["errors"]), plan["errors"])
+        self.assertNotIn("HR – Administrator",
+                         [c["id"] for c in plan["components"]])
+
+    def test_the_roles_the_report_names_are_packaged(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            build = self._tree(tmp, [("traveller", "Travel – Traveller")],
+                               ["traveller"])
+            plan = self._build(build)
+        self.assertEqual(plan["errors"], [])
+        self.assertIn("Travel – Traveller",
+                      [c["id"] for c in plan["components"]])
+
+    def test_without_a_report_every_role_file_is_still_packaged(self):
+        """An older build directory has no report; refusing to pack anything
+        would be a worse failure than the one being prevented."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            build = self._tree(tmp, [("traveller", "Travel – Traveller")], None)
+            plan = self._build(build)
+        self.assertEqual(plan["errors"], [])
+        self.assertIn("Travel – Traveller",
+                      [c["id"] for c in plan["components"]])
+
+
 class TestTheRealSolution(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

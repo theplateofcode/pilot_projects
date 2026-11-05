@@ -617,5 +617,172 @@ class TestFirmShape(unittest.TestCase):
         self.assertEqual(demodata.main(["--profile", "hr-starter", "--people", "3"]), 2)
 
 
+class TestTravel(unittest.TestCase):
+    """The Travel Portal section, and the tiles its dashboard reads."""
+
+    PROFILE = "travel-starter"
+
+    def _firm(self, people=64, seed=7):
+        model_file = ROOT / "build" / f"{self.PROFILE}.model.json"
+        if not model_file.exists():
+            self.skipTest(
+                f"run: python tools/schematool.py export --profile {self.PROFILE}")
+        self.model = json.loads(model_file.read_text(encoding="utf-8"))
+        firm = demodata.Firm(self.model, demodata.load_firm("northwind"), people, seed)
+        firm.build()
+        return firm
+
+    def _keys(self, table, column, *labels):
+        """The stored keys behind the labels the dashboard's DAX filters name."""
+        enum = self.model["enums"][
+            self.model["entities"][table]["attributes"][column]["enum"]]
+        by_label = {v["label"]: v["key"] for v in enum["values"]}
+        for label in labels:
+            self.assertIn(label, by_label, f"{table}[{column}]")
+        return {by_label[l] for l in labels}
+
+    def test_the_travel_section_validates(self):
+        firm = self._firm()
+        validator = demodata.Validator(self.model, firm.rows)
+        validator.run()
+        self.assertEqual(validator.errors, [])
+
+    def test_every_destination_country_is_in_the_country_seed(self):
+        """A destinationCountry is a lookup, so an unseeded country is a dangling
+        reference — which is how 'NG' got as far as the validator once."""
+        model_file = ROOT / "build" / f"{self.PROFILE}.model.json"
+        if not model_file.exists():
+            self.skipTest(f"run: python tools/schematool.py export --profile {self.PROFILE}")
+        model = json.loads(model_file.read_text(encoding="utf-8"))
+        seeded = {row["isoCode2"] for row in model["seed"]["Country"]}
+        for destination in demodata.DESTINATIONS:
+            self.assertIn(destination["country"], seeded, destination["city"])
+
+    def test_destination_shares_add_up_to_one(self):
+        self.assertAlmostEqual(
+            sum(d["share"] for d in demodata.DESTINATIONS), 1.0, places=6)
+
+    def test_expense_categories_add_up_to_one(self):
+        self.assertAlmostEqual(
+            sum(i["share"] for i in demodata.EXPENSE_MIX), 1.0, places=6)
+
+    def test_every_expense_category_has_a_limit_above_its_typical_value(self):
+        for item in demodata.EXPENSE_MIX:
+            self.assertGreater(item["cap"], item["typical"], item["code"])
+
+    def test_somebody_is_away_now_somewhere_high_risk(self):
+        """The duty-of-care tile. Asserted across several seeds because it is
+        guaranteed by construction, not by the luck of the draw."""
+        risky = None
+        for seed in (1, 7, 42, 99):
+            firm = self._firm(seed=seed)
+            risky = risky or self._keys("TripRequest", "highestRiskLevel",
+                                        "High", "Extreme")
+            away = self._keys("TripRequest", "status", "Booked", "Travelling")
+            here = [
+                t for t in firm.rows["TripRequest"]
+                if t["highestRiskLevel"] in risky and t["status"] in away
+                and dt.date.fromisoformat(t["departureDate"]) <= demodata.TODAY
+                <= dt.date.fromisoformat(t["returnDate"])
+            ]
+            self.assertTrue(here, f"seed {seed}: nobody risky is away now")
+
+    def test_a_minority_of_trips_breach_the_policy(self):
+        """Not zero, because a policy nothing breaches shows nothing; and not a
+        majority, because that is a policy problem rather than demo data."""
+        firm = self._firm()
+        trips = firm.rows["TripRequest"]
+        breaches = [t for t in trips if t["isOutOfPolicy"]]
+        self.assertGreater(len(breaches), 0)
+        self.assertLess(len(breaches) / len(trips), 0.35)
+
+    def test_an_out_of_policy_trip_is_late_or_above_its_cabin_class(self):
+        firm = self._firm()
+        bookings = {b["trip"]: b for b in firm.rows["TravelBooking"]}
+        for trip in firm.rows["TripRequest"]:
+            booking = bookings.get(trip["code"])
+            if booking is None:
+                continue
+            self.assertEqual(booking["isInPolicy"], not trip["isOutOfPolicy"],
+                             trip["code"])
+
+    def test_some_expense_lines_are_over_their_category_limit(self):
+        firm = self._firm()
+        lines = firm.rows["ExpenseLine"]
+        over = [l for l in lines if l["isOutOfPolicy"]]
+        self.assertGreater(len(over), 0)
+        self.assertLess(len(over) / len(lines), 0.35)
+
+    def test_an_over_limit_line_really_is_over_its_limit(self):
+        firm = self._firm()
+        caps = {i["code"]: i for i in demodata.EXPENSE_MIX}
+        trips = {t["code"]: t for t in firm.rows["TripRequest"]}
+        reports = {r["code"]: r for r in firm.rows["ExpenseReport"]}
+        for line in firm.rows["ExpenseLine"]:
+            item = caps[line["category"]]
+            trip = trips[reports[line["report"]]["trip"]]
+            nights = (dt.date.fromisoformat(trip["returnDate"])
+                      - dt.date.fromisoformat(trip["departureDate"])).days
+            unit = line["amount"] / (nights if item.get("nightly") else 1)
+            self.assertEqual(line["isOutOfPolicy"], unit > item["cap"],
+                             f"{line['code']} {line['category']} {unit:.2f}")
+
+    def test_an_in_flight_trip_has_not_returned_yet(self):
+        firm = self._firm()
+        travelling = self._keys("TripRequest", "status", "Travelling")
+        for trip in firm.rows["TripRequest"]:
+            if trip["status"] in travelling:
+                self.assertGreaterEqual(
+                    dt.date.fromisoformat(trip["returnDate"]), demodata.TODAY,
+                    trip["code"])
+
+    def test_card_spend_is_left_unmatched_and_some_of_it_is_old(self):
+        firm = self._firm()
+        unmatched = self._keys("CardTransaction", "status", "Unmatched")
+        open_items = [c for c in firm.rows["CardTransaction"]
+                      if c["status"] in unmatched]
+        self.assertGreater(len(open_items), 0)
+        oldest = min(dt.date.fromisoformat(c["transactionDate"]) for c in open_items)
+        self.assertGreater((demodata.TODAY - oldest).days, 60)
+
+    def test_the_effective_dated_travel_reference_rows_carry_a_start(self):
+        firm = self._firm()
+        for table in ("TravelPolicy", "DestinationAdvisory", "PerDiemRate"):
+            for row in firm.rows[table]:
+                self.assertIsNotNone(row.get("validFrom"), f"{table} {row['code']}")
+
+    def test_the_hotel_limit_matches_the_generated_policy(self):
+        """Two places state the nightly hotel cap; a demo where the claim is
+        judged against a different number than the policy states is worse than
+        no policy at all."""
+        firm = self._firm()
+        policy = firm.rows["TravelPolicy"][0]
+        hotel = next(i for i in demodata.EXPENSE_MIX if i["code"] == "HOTEL")
+        self.assertEqual(policy["maxHotelRatePerNight"], float(hotel["cap"]))
+
+    def test_an_unapproved_trip_is_never_booked(self):
+        firm = self._firm()
+        booked = {b["trip"] for b in firm.rows["TravelBooking"]}
+        blocked = self._keys("TripRequest", "status", "Submitted", "Rejected")
+        for trip in firm.rows["TripRequest"]:
+            if trip["status"] in blocked:
+                self.assertNotIn(trip["code"], booked, trip["code"])
+
+    def test_every_claim_belongs_to_a_completed_trip(self):
+        firm = self._firm()
+        completed = self._keys("TripRequest", "status", "Completed")
+        status = {t["code"]: t["status"] for t in firm.rows["TripRequest"]}
+        for report in firm.rows["ExpenseReport"]:
+            self.assertIn(status[report["trip"]], completed, report["code"])
+
+    def test_a_reimbursable_line_was_not_paid_on_the_corporate_card(self):
+        firm = self._firm()
+        for line in firm.rows["ExpenseLine"]:
+            if line["isReimbursable"]:
+                self.assertIsNone(line["cardTransaction"], line["code"])
+            self.assertEqual(line["isReimbursable"],
+                             line["paymentMethod"] != "corporateCard", line["code"])
+
+
 if __name__ == "__main__":
     unittest.main()

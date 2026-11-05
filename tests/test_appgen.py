@@ -158,6 +158,35 @@ class TestSiteMap(unittest.TestCase):
         self.assertTrue(any("'Closed' is on the site map" in w for w in g.warnings))
         self.assertFalse(any("'Allowed' is on the site map" in w for w in g.warnings))
 
+    def test_a_table_the_roles_file_declares_out_of_scope_is_a_note(self):
+        """ExchangeRate is a standard Dataverse table, so there is no custom
+        privilege to grant and an empty grant is the expected state. Warning
+        about it would train the reader to ignore the warnings that matter."""
+        roles = {"desk": {"effectiveGrants": {"Allowed": {"read": "organization"}}}}
+        g = appgen.Generator(
+            spec(areas=[{"id": "a", "name": "A", "groups": [
+                {"id": "g", "name": "G", "tables": ["Allowed", "Rate"]}]}],
+                 role="desk"),
+            model({"Allowed": entity(), "Rate": entity()}), PREFIX, roles,
+            {"Rate": "Dataverse provides it."})
+        self.assertEqual(g.warnings, [])
+        self.assertTrue(any("Rate is on the site map and granted outside the "
+                            "roles file" in n for n in g.notes), g.notes)
+
+    def test_an_out_of_scope_table_a_role_can_read_is_reported_normally(self):
+        """Declaring it out of scope does not suppress the useful report."""
+        roles = {"desk": {"effectiveGrants": {"Rate": {"read": "organization"}}},
+                 "traveller": {"effectiveGrants": {}}}
+        g = appgen.Generator(
+            spec(areas=[{"id": "a", "name": "A", "groups": [
+                {"id": "g", "name": "G", "tables": ["Rate"]}]}],
+                 roles=["desk", "traveller"]),
+            model({"Rate": entity()}), PREFIX, roles,
+            {"Rate": "Dataverse provides it."})
+        self.assertEqual(g.warnings, [])
+        self.assertTrue(any("Rate is visible to desk and empty for traveller" in n
+                            for n in g.notes), g.notes)
+
 
 class TestFormLayout(unittest.TestCase):
     def _sections(self, generator, table="T"):
@@ -404,9 +433,10 @@ class TestTheRealApp(unittest.TestCase):
         cls.spec = yaml.safe_load(
             (ROOT / "apps" / "hr-admin.yaml").read_text(encoding="utf-8"))
         cls.model = json.loads(MODEL_FILE.read_text(encoding="utf-8"))
-        roles, why_not = appgen.load_roles("hr-starter", PREFIX)
+        roles, out_of_scope, why_not = appgen.load_roles("hr-starter", PREFIX)
         cls.why_not = why_not
-        cls.generator = appgen.Generator(cls.spec, cls.model, PREFIX, roles)
+        cls.generator = appgen.Generator(cls.spec, cls.model, PREFIX, roles,
+                                         out_of_scope)
         cls.plan = cls.generator.build()
 
     def test_no_errors_and_no_warnings(self):

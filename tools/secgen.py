@@ -223,6 +223,16 @@ class RoleSet:
                 self.errors.append(f"outOfScope lists '{name}', which is not in this profile")
 
         reachable = {t for role in self.roles.values() for t in role["effectiveGrants"]}
+        # A table cannot be both deliberately ungranted and granted. When it is,
+        # the generated matrix reads as though the roles disagree about it —
+        # which is how the travel desk ended up unable to read a currency that
+        # every traveller could.
+        for name in sorted(set(self.out_of_scope) & reachable):
+            holders = sorted(code for code, role in self.roles.items()
+                             if name in role["effectiveGrants"])
+            self.errors.append(
+                f"'{name}' is declared outOfScope but granted by "
+                f"{', '.join(holders)} — drop it from one or the other")
         for name, ent in sorted(self.entities.items()):
             if self._dataverse_table(name) is None or name in reachable:
                 continue
@@ -374,9 +384,22 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = Path(args.out) if args.out else BUILD_DIR / "dataverse" / args.profile / "security"
     (out_dir / "roles").mkdir(parents=True, exist_ok=True)
     payloads = role_set.payloads()
+    written = set()
     for item in payloads:
-        (out_dir / "roles" / f"{item['_code']}.json").write_text(
-            json.dumps(item, indent=2), encoding="utf-8")
+        path = out_dir / "roles" / f"{item['_code']}.json"
+        path.write_text(json.dumps(item, indent=2), encoding="utf-8")
+        written.add(path.name)
+    # A role file from an earlier run with a different roles file is not
+    # harmless leftover: solgen packs whatever is in this directory, so three
+    # HR roles once went into the travel solution. The directory is the
+    # contract, so this run owns all of it.
+    stale = sorted(path for path in (out_dir / "roles").glob("*.json")
+                   if path.name not in written)
+    for path in stale:
+        path.unlink()
+        role_set.notes.append(
+            f"removed {path.name}, left over from an earlier run with a "
+            "different roles file")
     (out_dir / "column-profiles.json").write_text(
         json.dumps(spec.get("columnProfiles", []), indent=2), encoding="utf-8")
     (out_dir / "matrix.md").write_text(role_set.matrix() + "\n", encoding="utf-8")

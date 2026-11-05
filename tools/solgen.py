@@ -211,7 +211,27 @@ class Builder:
                 f"no security roles ({roles_dir}) — run: python tools/secgen.py "
                 f"--profile {self.profile} --prefix {self.prefix}")
             return
+        # secgen's report names the roles it generated. A role file the report
+        # does not name is stale output, and packing it would put privileges in
+        # the solution that nobody specified for this profile.
+        report = roles_dir.parent / "report.json"
+        expected: set[str] | None = None
+        if report.exists():
+            try:
+                expected = {r["code"] for r in
+                            (json.loads(report.read_text(encoding="utf-8"))
+                             .get("roles") or [])}
+            except (ValueError, KeyError, TypeError) as exc:
+                self.warnings.append(f"could not read {report.name}: {exc}")
+
         for path in sorted(roles_dir.glob("*.json")):
+            if expected is not None and path.stem not in expected:
+                self.errors.append(
+                    f"{path.name} is in {roles_dir.name}/ but security/"
+                    f"report.json does not name it — stale output from an "
+                    f"earlier run; rerun: python tools/secgen.py --profile "
+                    f"{self.profile} --prefix {self.prefix}")
+                continue
             item = json.loads(path.read_text(encoding="utf-8"))
             element = ET.Element("Role")
             ET.SubElement(element, "RoleName").text = item["role"]["name"]

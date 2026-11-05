@@ -62,9 +62,12 @@ TARGETS = ("schema", "dataverse", "powerbi", "sql", "sharepoint", "demo")
 # this only has to say *where to look*; build.py skips one whose declaration
 # disagrees, which is what keeps a Phase 1 spec out of a Phase 2 build.
 SPECS = {
-    "security": {"hr-starter": "phase1-roles.yaml", "law-firm-crm": "crm-roles.yaml"},
-    "apps": {"hr-starter": "hr-admin.yaml", "law-firm-crm": "crm-intake.yaml"},
-    "powerbi": {"hr-starter": "hr-dashboard.yaml", "law-firm-crm": "crm-dashboard.yaml"},
+    "security": {"hr-starter": "phase1-roles.yaml", "law-firm-crm": "crm-roles.yaml",
+                 "travel-starter": "travel-roles.yaml"},
+    "apps": {"hr-starter": "hr-admin.yaml", "law-firm-crm": "crm-intake.yaml",
+             "travel-starter": "travel-desk.yaml"},
+    "powerbi": {"hr-starter": "hr-dashboard.yaml", "law-firm-crm": "crm-dashboard.yaml",
+                "travel-starter": "travel-dashboard.yaml"},
 }
 
 
