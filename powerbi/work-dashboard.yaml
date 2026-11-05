@@ -1,0 +1,524 @@
+# Delivery analytics dashboard — Phase 3.
+#
+#   python tools/pbigen.py --profile work-starter --prefix ctw \
+#       --spec powerbi/work-dashboard.yaml
+#
+# Four pages, and the order is an argument about who the report is for.
+# Utilisation first, because on a time-and-materials business that single
+# number is the business. Then delivery health, then the money that has been
+# earned but not yet billed, then the backlog. Backlog is last on purpose: it
+# is the page a delivery team already has a tool for.
+
+meta:
+  name: Delivery Analytics
+  description: Utilisation, delivery health, work in progress and the backlog.
+  profile: work-starter
+  prefix: ctw
+  storageMode: import
+  environmentParameter: DataverseEnvironment
+  defaultEnvironment: contoso-dev.crm11.dynamics.com
+  culture: en-GB
+
+tables:
+  - Employee
+  - OrgUnit
+  - CostCenter
+  - Office
+  - Account
+  - Project
+  - ProjectType
+  - ProjectPhase
+  - ProjectMember
+  - ProjectRole
+  - Milestone
+  - Sprint
+  - WorkItem
+  - WorkItemType
+  - Timesheet
+  - TimeEntry
+  - TimeCode
+  - ResourceRequest
+  - RaidItem
+  - StatusReport
+
+# WorkItemDependency is not in the dataset: it is a scheduling link with no
+# analytical value, and a many-to-one pair of lookups to the same table costs
+# a role-playing dimension to model for no measure.
+#
+# The cost rate is the one column this report deliberately does not carry.
+# A dataset is a copy under its own permissions, so importing it would hand
+# every cost rate to anyone who can open the report — and margin reporting on
+# the pro-code stack is an API endpoint with its own authorisation, not a
+# Power BI page. The roles file says the same thing in Dataverse terms.
+hide:
+  - ProjectMember.costRate
+  - ProjectRole.defaultCostRate
+  - Employee.mobilePhone
+  - Account.taxNumber
+  - TimeEntry.internalNotes
+
+dateTable:
+  name: Date
+  from: 2024-01-01
+  yearEndMonth: 12
+
+measures:
+  # --- Utilisation -----------------------------------------------------------
+  - name: Logged Hours
+    folder: Utilisation
+    format: "#,0.0"
+    description: Every hour recorded on a timesheet, billable or not.
+    expression: "SUM( 'TimeEntry'[hours] )"
+
+  - name: Billable Hours
+    folder: Utilisation
+    format: "#,0.0"
+    description: Hours chargeable to a client.
+    expression: |
+      CALCULATE( SUM( 'TimeEntry'[hours] ), 'TimeEntry'[isBillable] = TRUE() )
+
+  - name: Delivery Hours
+    folder: Utilisation
+    format: "#,0.0"
+    description: >
+      Hours logged by people in a fee-earning unit. OrgUnit.isDeliveryUnit is
+      the only thing in the model that says which units those are — unitType
+      says what shape a unit is, not whether it earns fees — and the column was
+      added because this measure could not be written without it.
+    expression: |
+      CALCULATE( SUM( 'TimeEntry'[hours] ),
+                 'OrgUnit'[isDeliveryUnit] = TRUE() )
+
+  - name: Delivery Billable Hours
+    folder: Utilisation
+    format: "#,0.0"
+    expression: |
+      CALCULATE( SUM( 'TimeEntry'[hours] ),
+                 'TimeEntry'[isBillable] = TRUE(),
+                 'OrgUnit'[isDeliveryUnit] = TRUE() )
+    description: The chargeable part of it.
+
+  - name: Delivery Utilisation %
+    folder: Utilisation
+    format: "0.0%"
+    description: >
+      The headline. Billable share of the hours logged by fee-earning units,
+      which is what a firm means by utilisation. It is still
+      chargeable-against-logged rather than chargeable-against-available: the
+      model has no capacity table, so a week somebody did not submit at all is
+      absent rather than counted as zero. Saying which denominator a
+      utilisation figure uses is the difference between a number and an
+      argument.
+    expression: "DIVIDE( [Delivery Billable Hours], [Delivery Hours] )"
+
+  - name: Utilisation %
+    folder: Utilisation
+    format: "0.0%"
+    description: >
+      The same ratio across the whole firm, support functions included. It is
+      lower than the delivery figure by construction and is not a utilisation
+      target — it is the firm's billable headcount ratio, which is a different
+      and also useful number. Both are on the page because quoting one as the
+      other is the commonest way a utilisation report misleads.
+    expression: "DIVIDE( [Billable Hours], [Logged Hours] )"
+
+  - name: People Logging Time
+    folder: Utilisation
+    format: "#,0"
+    expression: "DISTINCTCOUNT( 'TimeEntry'[employee] )"
+    description: How many people appear in the period at all.
+
+  - name: Timesheets
+    folder: Utilisation
+    format: "#,0"
+    expression: "COUNTROWS( 'Timesheet' )"
+    description: Weekly timesheets in the period.
+
+  - name: Avg Hours Per Timesheet
+    folder: Utilisation
+    format: "#,0.0"
+    description: >
+      Hours in an average week. A figure well under the working week means
+      people are not recording all their time, which makes every other number
+      on this page an understatement.
+    expression: "DIVIDE( [Logged Hours], [Timesheets] )"
+
+  - name: Unsubmitted Hours
+    folder: Utilisation
+    format: "#,0.0"
+    description: >
+      Recorded but never submitted. Unsubmitted time is invisible to billing,
+      so this is the first number to check before believing the revenue page.
+    expression: |
+      CALCULATE( SUM( 'TimeEntry'[hours] ), 'TimeEntry'[statusname] = "Draft" )
+
+  - name: Awaiting Approval Hours
+    folder: Utilisation
+    format: "#,0.0"
+    expression: |
+      CALCULATE( SUM( 'TimeEntry'[hours] ),
+                 'TimeEntry'[statusname] = "Submitted" )
+    description: Submitted and sitting in somebody's queue.
+
+  # --- Revenue and work in progress -----------------------------------------
+  - name: Billable Value
+    folder: Revenue
+    format: "\\$#,0;(\\$#,0)"
+    description: Hours at their bill rate — what the work is worth, not what is billed.
+    expression: "SUM( 'TimeEntry'[billAmount] )"
+
+  - name: Billed Value
+    folder: Revenue
+    format: "\\$#,0;(\\$#,0)"
+    expression: |
+      CALCULATE( SUM( 'TimeEntry'[billAmount] ),
+                 'TimeEntry'[statusname] = "Billed" )
+    description: Value already on an invoice.
+
+  - name: Work In Progress
+    folder: Revenue
+    format: "\\$#,0;(\\$#,0)"
+    description: >
+      Approved or submitted value not yet billed. WIP is the number a finance
+      director asks for first, because it is cash the firm has earned and not
+      asked for.
+    expression: |
+      CALCULATE( SUM( 'TimeEntry'[billAmount] ),
+                 'TimeEntry'[statusname] IN { "Approved", "Submitted" } )
+
+  - name: Written Off
+    folder: Revenue
+    format: "\\$#,0;(\\$#,0)"
+    expression: |
+      CALCULATE( SUM( 'TimeEntry'[billAmount] ),
+                 'TimeEntry'[statusname] = "Written Off" )
+    description: Value the firm decided not to charge for.
+
+  - name: Write-off %
+    folder: Revenue
+    format: "0.0%"
+    description: >
+      Write-offs over everything chargeable. A rising rate on a fixed-fee book
+      means the fees are wrong, not that the team is slow.
+    expression: "DIVIDE( [Written Off], [Billable Value] )"
+
+  - name: Avg Bill Rate
+    folder: Revenue
+    format: "\\$#,0;(\\$#,0)"
+    expression: "DIVIDE( [Billable Value], [Billable Hours] )"
+    description: Realised rate per hour, which is rarely the rate card.
+
+  - name: Contract Value
+    folder: Revenue
+    format: "\\$#,0;(\\$#,0)"
+    expression: "SUM( 'Project'[contractValue] )"
+    description: Signed value of the projects in scope.
+
+  - name: Milestone Value Due
+    folder: Revenue
+    format: "\\$#,0;(\\$#,0)"
+    description: >
+      Billing milestones not yet achieved. On a fixed-fee book this is the
+      invoicing pipeline, and it is a different question from WIP.
+    expression: |
+      CALCULATE( SUM( 'Milestone'[billingAmount] ),
+                 'Milestone'[isBillingMilestone] = TRUE(),
+                 'Milestone'[statusname] = "Planned" )
+
+  # --- Delivery health -------------------------------------------------------
+  - name: Projects
+    folder: Delivery
+    format: "#,0"
+    expression: "COUNTROWS( 'Project' )"
+
+  - name: Active Projects
+    folder: Delivery
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'Project' ), 'Project'[statusname] = "Active" )
+
+  - name: Projects Off Track
+    folder: Delivery
+    format: "#,0"
+    description: Amber or red on the project manager's own health flag.
+    expression: |
+      CALCULATE( COUNTROWS( 'Project' ),
+                 'Project'[healthname] IN { "Amber", "Red" } )
+
+  - name: Off Track %
+    folder: Delivery
+    format: "0.0%"
+    expression: "DIVIDE( [Projects Off Track], [Projects] )"
+    description: The rate, which is the number that trends.
+
+  - name: Milestones Missed
+    folder: Delivery
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'Milestone' ),
+                 'Milestone'[statusname] = "Missed" )
+    description: Commitments the firm did not keep.
+
+  - name: Milestone Hit Rate
+    folder: Delivery
+    format: "0.0%"
+    description: >
+      Achieved over everything that has come due. The one delivery metric a
+      client recognises.
+    expression: |
+      DIVIDE(
+          CALCULATE( COUNTROWS( 'Milestone' ),
+                     'Milestone'[statusname] = "Achieved" ),
+          CALCULATE( COUNTROWS( 'Milestone' ),
+                     'Milestone'[statusname] IN { "Achieved", "Missed" } )
+      )
+
+  - name: Open Risks
+    folder: Delivery
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'RaidItem' ),
+                 'RaidItem'[raidTypename] = "Risk",
+                 'RaidItem'[statusname] IN { "Open", "In Progress" } )
+    description: Risks still live on the RAID log.
+
+  - name: Severe Risks
+    folder: Delivery
+    format: "#,0"
+    description: >
+      Probability times impact of nine or more on the four-point scale — the
+      filter a delivery board actually uses, which only works because the
+      score is computed rather than typed.
+    expression: |
+      CALCULATE( COUNTROWS( 'RaidItem' ),
+                 'RaidItem'[severityScore] >= 9,
+                 'RaidItem'[statusname] IN { "Open", "In Progress" } )
+
+  - name: Open Issues
+    folder: Delivery
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'RaidItem' ),
+                 'RaidItem'[raidTypename] = "Issue",
+                 'RaidItem'[statusname] IN { "Open", "In Progress" } )
+
+  - name: Hours Against Budget %
+    folder: Delivery
+    format: "0.0%"
+    description: >
+      Hours logged over hours budgeted. Over 100% on a fixed fee is money
+      already lost, and the phase page is where it shows up first.
+    expression: "DIVIDE( [Logged Hours], SUM( 'Project'[budgetHours] ) )"
+
+  # --- Resourcing ------------------------------------------------------------
+  - name: Unfilled Requests
+    folder: Resourcing
+    format: "#,0"
+    description: >
+      Staffing requests still open. The queue a resource manager works, and
+      the only number on this report that is somebody's whole job.
+    expression: |
+      CALCULATE( COUNTROWS( 'ResourceRequest' ),
+                 'ResourceRequest'[statusname] IN
+                 { "Submitted", "Partially Filled" } )
+
+  - name: Unfilled Hours
+    folder: Resourcing
+    format: "#,0"
+    expression: |
+      CALCULATE( SUM( 'ResourceRequest'[hoursRequired] ),
+                 'ResourceRequest'[statusname] IN
+                 { "Submitted", "Partially Filled" } )
+    description: The size of the gap, not just its count.
+
+  - name: Over-allocated People
+    folder: Resourcing
+    format: "#,0"
+    description: >
+      People whose allocations across live projects add up to more than 100%.
+      Computed rather than stored, because an allocation is only over-committed
+      relative to the others — which is exactly the sort of thing a column
+      cannot hold and a measure can.
+    expression: |
+      COUNTROWS(
+          FILTER(
+              VALUES( 'ProjectMember'[employee] ),
+              CALCULATE( SUM( 'ProjectMember'[allocationPercent] ) ) > 100
+          )
+      )
+
+  - name: Allocated People
+    folder: Resourcing
+    format: "#,0"
+    expression: "DISTINCTCOUNT( 'ProjectMember'[employee] )"
+    description: How many people are on a project at all.
+
+  # --- Backlog ---------------------------------------------------------------
+  - name: Work Items
+    folder: Backlog
+    format: "#,0"
+    expression: "COUNTROWS( 'WorkItem' )"
+
+  - name: Done %
+    folder: Backlog
+    format: "0.0%"
+    expression: |
+      DIVIDE(
+          CALCULATE( COUNTROWS( 'WorkItem' ), 'WorkItem'[statusname] = "Done" ),
+          [Work Items]
+      )
+
+  - name: Blocked Items
+    folder: Backlog
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'WorkItem' ), 'WorkItem'[statusname] = "Blocked" )
+    description: Work nobody can move, which is where a stand-up should start.
+
+  - name: Overdue Items
+    folder: Backlog
+    format: "#,0"
+    description: Past its due date and not finished.
+    expression: |
+      CALCULATE(
+          COUNTROWS( 'WorkItem' ),
+          'WorkItem'[statusname] <> "Done",
+          'WorkItem'[statusname] <> "Cancelled",
+          FILTER( 'WorkItem', 'WorkItem'[dueDate] < TODAY() )
+      )
+
+  - name: Remaining Hours
+    folder: Backlog
+    format: "#,0.0"
+    expression: "SUM( 'WorkItem'[remainingHours] )"
+    description: What the team still believes is left.
+
+  - name: Story Points Done
+    folder: Backlog
+    format: "#,0"
+    expression: |
+      CALCULATE( SUM( 'WorkItem'[storyPoints] ),
+                 'WorkItem'[statusname] = "Done" )
+    description: >
+      Blank for a firm that runs matter phases rather than sprints, which is
+      correct — the same model serves both cadences and only one of them
+      estimates in points.
+
+pages:
+  - name: Utilisation
+    description: >
+      The page the managing partner opens. On a time-and-materials business
+      this single number is the business.
+    visuals:
+      - { type: statTile, title: Delivery utilisation, measure: Delivery Utilisation % }
+      - { type: statTile, title: Firm-wide, measure: Utilisation % }
+      - { type: statTile, title: Logged hours, measure: Logged Hours }
+      - { type: statTile, title: Billable hours, measure: Billable Hours }
+      - { type: statTile, title: Unsubmitted, measure: Unsubmitted Hours, status: true }
+      - { type: statTile, title: Awaiting approval, measure: Awaiting Approval Hours, status: true }
+      - type: line
+        title: Delivery utilisation by month
+        measures: [Delivery Utilisation %]
+        axis: Date.Year Month
+      - type: barHorizontal
+        title: Utilisation by department
+        measures: [Utilisation %]
+        axis: OrgUnit.name
+        dataLabels: true
+        note: >
+          The firm-wide ratio per unit, deliberately — a support function reads
+          near zero here, which is the chart explaining the headline rather
+          than contradicting it.
+      - type: barHorizontal
+        title: Hours by time code
+        measures: [Logged Hours]
+        axis: TimeCode.name
+        dataLabels: true
+      - type: table
+        title: Hours and utilisation by person
+        measures: [Logged Hours, Billable Hours, Utilisation %,
+                   Avg Hours Per Timesheet]
+        axis: Employee.displayName
+
+  - name: Delivery health
+    description: >
+      Whether the projects are going to land. The RAID log and the milestone
+      hit rate together, because a green status report over a list of severe
+      open risks is the commonest form of delivery reporting there is.
+    visuals:
+      - { type: statTile, title: Active projects, measure: Active Projects }
+      - { type: statTile, title: Off track, measure: Projects Off Track, status: true }
+      - { type: statTile, title: Milestone hit rate, measure: Milestone Hit Rate }
+      - { type: statTile, title: Missed milestones, measure: Milestones Missed, status: true }
+      - { type: statTile, title: Severe risks, measure: Severe Risks, status: true }
+      - { type: statTile, title: Open issues, measure: Open Issues, status: true }
+      - type: barHorizontal
+        title: Projects by type
+        measures: [Projects]
+        axis: ProjectType.name
+        dataLabels: true
+      - type: barHorizontal
+        title: Open risks by project
+        measures: [Open Risks]
+        axis: Project.name
+        dataLabels: true
+      - type: table
+        title: Projects off track
+        measures: [Hours Against Budget %, Open Risks, Milestones Missed]
+        axis: Project.name
+
+  - name: Revenue and WIP
+    description: >
+      What the work is worth, what has been billed, and what has not. The
+      distance between the first two is the reason this page exists.
+    visuals:
+      - { type: statTile, title: Billable value, measure: Billable Value }
+      - { type: statTile, title: Billed, measure: Billed Value }
+      - { type: statTile, title: WIP, measure: Work In Progress, status: true }
+      - { type: statTile, title: Written off, measure: Written Off, status: true }
+      - { type: statTile, title: Write-off rate, measure: Write-off % }
+      - { type: statTile, title: Avg rate, measure: Avg Bill Rate }
+      - type: line
+        title: Billable value by month
+        measures: [Billable Value, Billed Value]
+        axis: Date.Year Month
+      - type: barHorizontal
+        title: WIP by project
+        measures: [Work In Progress]
+        axis: Project.name
+        dataLabels: true
+      - type: barHorizontal
+        title: Billable value by client
+        measures: [Billable Value]
+        axis: Account.name
+        dataLabels: true
+      - type: table
+        title: Revenue by project
+        measures: [Billable Value, Billed Value, Work In Progress]
+        axis: Project.name
+
+  - name: Resourcing and backlog
+    description: >
+      The two operational pages a delivery team works from daily, kept last
+      because they are the two a delivery team already has a tool for.
+    visuals:
+      - { type: statTile, title: Unfilled requests, measure: Unfilled Requests, status: true }
+      - { type: statTile, title: Unfilled hours, measure: Unfilled Hours, status: true }
+      - { type: statTile, title: Over-allocated, measure: Over-allocated People, status: true }
+      - { type: statTile, title: Blocked, measure: Blocked Items, status: true }
+      - { type: statTile, title: Overdue, measure: Overdue Items, status: true }
+      - { type: statTile, title: Done, measure: Done % }
+      - type: barHorizontal
+        title: Unfilled hours by role
+        measures: [Unfilled Hours]
+        axis: ProjectRole.name
+        dataLabels: true
+      - type: barHorizontal
+        title: Work items by type
+        measures: [Work Items]
+        axis: WorkItemType.name
+        dataLabels: true
+      - type: table
+        title: Backlog by project
+        measures: [Work Items, Done %, Blocked Items, Remaining Hours]
+        axis: Project.name

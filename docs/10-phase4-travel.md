@@ -111,9 +111,10 @@ between **seeing somebody's trip** and **seeing somebody's passport**.
 
 | | Traveller | Approver | Travel Desk |
 |---|---|---|---|
-| `TripRequest` | CRUD own | R unit | CRUD unit+ |
-| `ExpenseReport`, `ExpenseLine` | CRUD own | CRUD unit | CRUD unit+ |
-| `CardTransaction` | RU own | RU unit | CRUD unit+ |
+| `TripRequest` | CRUD own | RU unit, CD own | CRUD unit+ |
+| `ExpenseReport` | CRUD own | RU unit, CD own | CRUD unit+ |
+| `ExpenseLine` | CRUD own | R unit, CUD own | CRUD unit+ |
+| `CardTransaction` | RU own | R unit, U own | CRUD unit+ |
 | `TravelBooking` | R own | R unit | CRUD unit+ |
 | **`TravellerProfile`** | RU **own** | RU **own** | CRUD unit+ |
 | **`TravelDocument`** | RU **own** | RU **own** | CRUD unit+ |
@@ -121,12 +122,20 @@ between **seeing somebody's trip** and **seeing somebody's passport**.
 | `TravelPolicy`, `PerDiemRate`, `DestinationAdvisory` | R all | R all | CRUD all |
 | `CorporateRate` | — | — | CRUD all |
 
-Read the approver column downward and the shape is clear: an approver's depth widens to their
-unit for everything operational and stays at **own** for the three tables that hold identity
-documents. An approver needs to know where their team is going and what it costs. They do not
-need a passport number, a date of birth or a frequent-flyer account, and a system that gives
-them one because it was easier to grant the whole module is how a travel system becomes a
-GDPR problem.
+Read the approver column downward and the shape is clear: an approver's **read** widens to
+their unit for everything operational, their **create and delete** stay at own — they approve
+their team's claims, they do not raise or delete them — and everything stays at own for the
+three tables that hold identity documents. An approver needs to know where their team is going
+and what it costs. They do not need a passport number, a date of birth or a frequent-flyer
+account, and a system that gives them one because it was easier to grant the whole module is
+how a travel system becomes a GDPR problem.
+
+That middle column is narrower than this guide first claimed. The role was always right; the
+generated matrix showed one depth per cell — the widest of the privileges in it — so an
+approver whose read is unit-wide and whose create is own-only rendered as `CRUD (unit)`. The
+matrix is the artefact a reviewer approves, so overstating a privilege in it is the same defect
+as granting one. `secgen` now groups the letters by depth, which also narrowed two cells in
+Phase 1's matrix.
 
 The travel desk does hold those tables, because somebody has to: an airline booking needs the
 name as printed on the passport. That is why the desk is a small team and why its role is the

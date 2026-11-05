@@ -137,7 +137,7 @@ Effort below is a rough guide for one person working full time; scale it to your
 | **0. Foundation** | 1–2 weeks | Schema v1 reviewed and tagged; publisher prefix chosen; dev tenant and Dev/Test environments; repo folders for solutions, SharePoint and apps; demo-data plan | `validate` and `docs --check` green in CI; environment access working; open decisions (§9) answered |
 | **1. Core + HR** *(in progress)* | 3–4 weeks | Core tables and approval engine in Dataverse; HR model-driven app; employee self-service canvas app (leave, profile, training); onboarding flow; HR Power BI page | Three personas (employee, manager, HR) with security roles; leave request approved end-to-end; compensation invisible to non-HR |
 | **2. CRM** *(built from source)* | 3–4 weeks | CRM model-driven app; pipeline and proposal flow; Power Pages client portal; conflict-check process (law overlay) | Lead → opportunity → won → project hand-off works; portal user sees only their own records |
-| **3. Work Management** | 4–6 weeks | Project/backlog/time app on the chosen stack; timesheet approval; resourcing view; status report; utilisation report | 10k+ demo time entries perform well; project created from a won opportunity |
+| **3. Work Management** *(built from source)* | 4–6 weeks | Project/backlog/time app on the chosen stack; timesheet approval; resourcing view; status report; utilisation report | 10k+ demo time entries perform well; project created from a won opportunity |
 | **4. Travel Portal** *(built from source)* | 2–3 weeks | SharePoint lists provisioned from template; canvas app (request, approve, expenses with receipt photo); policy checks; duty-of-care view | Trip request → approval → booking → expense claim → paid, with an out-of-policy example |
 | **5. Intranet** | 3–4 weeks | Hub + communication sites from PnP template; news, events, policy library with attestation, service desk; SPFx web parts; Viva Connections dashboard | Audience targeting works; policy attestation report; mobile-friendly |
 | **6. Industry overlays + polish** | 2–3 weeks | Apply each industry profile to at least one pilot; demo data per fictional firm; demo videos and case studies | Each profile deploys cleanly from scratch; 3–5 minute video per pilot |
@@ -211,6 +211,7 @@ Generated from the schema and checked in CI:
 | Solution packaging | 767 components in one folder, with its manifest |
 | Five fictional firms | Woodgrove, Fabrikam, Adatum, Contoso and Northwind, each dressed for its industry |
 | Travel on two platforms (Phase 4) | the same model generated to 32 Dataverse tables and 35 SharePoint lists in one build, with the 15 platform limits reported rather than discovered |
+| Work Management at volume (Phase 3) | 14,242 generated time entries loaded into the generated schema and queried in tests, with the reporting indexes a high-volume table needs |
 
 | Still to do | Needs |
 |---|---|
@@ -220,6 +221,25 @@ Generated from the schema and checked in CI:
 | Onboarding flow | Power Automate |
 | The report canvas | Power BI Desktop, from the generated page spec |
 | Demo video and case study | the above, working |
+
+### Phase 3 — Work Management, built from source
+
+The fourth pilot, and the volume one: 40 Azure SQL tables, 4 roles, 26 forms and views, 39
+Power BI measures over four pages, 515 solution components, and a demo firm carrying **14,242
+time entries** over 2,186 weekly timesheets. The roadmap's exit criterion for this phase is a
+number — *10k+ demo time entries perform well* — and it is now generated, loaded into the
+generated schema with the indexes the generator chose, and queried in the test suite, which
+asserts both that the aggregate is right and that the planner reaches it through an index.
+
+It added one column to the schema, because the dashboard demanded it: `OrgUnit.isDeliveryUnit`.
+Nothing in the model said which units earn fees, so the only available utilisation figure was
+billable hours over all hours firm-wide — 37% for Contoso, which is a true number that is not
+utilisation. With the column, delivery utilisation is 68% and the firm-wide ratio is reported
+beside it as the different thing it is.
+
+It also found the worst defect so far: **all four generated Power BI models carried relationship
+pairs Power BI cannot load**, and the test meant to catch it encoded the same mistake. Eight
+findings in all, in [11-phase3-work.md §7](11-phase3-work.md#7-what-the-fourth-pilot-actually-cost).
 
 ### Phase 4 — Travel Portal, built from source
 
@@ -244,7 +264,8 @@ latent defects a second pilot was always going to surface — is in
 [08-phase2-crm.md §7](08-phase2-crm.md#7-what-the-second-pilot-actually-cost).
 
 The full build guides are [06-phase1-core-hr.md](06-phase1-core-hr.md),
-[08-phase2-crm.md](08-phase2-crm.md) and [10-phase4-travel.md](10-phase4-travel.md).
+[08-phase2-crm.md](08-phase2-crm.md), [11-phase3-work.md](11-phase3-work.md) and
+[10-phase4-travel.md](10-phase4-travel.md).
 
 ## 11. Next ten steps
 

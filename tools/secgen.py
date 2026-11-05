@@ -338,17 +338,26 @@ class RoleSet:
                 if not grants:
                     cells.append("—")
                     continue
-                letters = "".join(
-                    letter for privilege, letter in
-                    (("create", "C"), ("read", "R"), ("write", "U"), ("delete", "D"))
-                    if privilege in grants
-                )
-                depth = max((grants[p] for p in grants), key=DEPTH_ORDER.index)
-                extra = "".join(
-                    letter for privilege, letter in (("assign", "+a"), ("share", "+s"))
-                    if privilege in grants
-                )
-                cells.append(f"{letters or '·'} ({short[depth]}){extra}")
+                # One group per depth, widest first. Showing only the widest
+                # depth for the whole cell overstates the narrow privileges:
+                # a project manager who reads their unit's time but creates
+                # only their own rendered as "CRUD (unit)", which is a claim
+                # the role does not make and the matrix is what a reviewer
+                # approves.
+                groups: dict[str, str] = {}
+                for privilege, letter in (("create", "C"), ("read", "R"),
+                                          ("write", "U"), ("delete", "D"),
+                                          ("assign", "+a"), ("share", "+s")):
+                    if privilege in grants:
+                        groups[grants[privilege]] = groups.get(
+                            grants[privilege], "") + letter
+                parts = [
+                    f"{letters or '·'} ({short[depth]})"
+                    for depth, letters in sorted(
+                        groups.items(), key=lambda kv: DEPTH_ORDER.index(kv[0]),
+                        reverse=True)
+                ]
+                cells.append(" ".join(parts) or "—")
             lines.append(f"| {name} | {ent.get('sensitivity')} | " + " | ".join(cells) + " |")
         lines.append("")
         lines.append("C create · R read · U update · D delete · +a assign · +s share")

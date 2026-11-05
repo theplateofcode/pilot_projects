@@ -1,0 +1,336 @@
+# Phase 3 security roles — Work Management.
+#
+# Phase 3's showcase stack is pro-code: React, an API and Azure SQL. There are
+# no Dataverse security roles on that stack — authorisation is the API's job.
+# This file is still the specification for it, exactly as travel-roles.yaml is
+# the specification for SharePoint list permissions in Phase 4: the generated
+# matrix is what the API's authorisation tests assert against, and the same
+# file builds real roles if the pilot is done low-code on Dataverse instead.
+#
+#   python tools/secgen.py --profile work-starter --prefix ctw \
+#       --roles security/work-roles.yaml
+
+meta:
+  profile: work-starter
+  prefix: ctw
+  businessUnitStrategy: >
+    Contoso is one legal entity with two offices, so one root business unit.
+    The depths still distinguish own-row from firm-wide, which is what the API
+    has to enforce; parentChild and organization behave identically here and
+    would diverge if a second entity were added.
+
+columnProfiles:
+  - name: Rate Card
+    description: >
+      What the firm pays for an hour, as opposed to what it charges for one.
+      A cost rate is a salary divided by a year, so a delivery person who can
+      see a colleague's cost rate can work out their pay. The bill rate is not
+      secured — it is on the client's invoice. Finance sets the rate card and
+      reports margin on it; a project manager sees the bill rate and the
+      budget, which is enough to run a project, and a delivery lead who needs
+      margin gets it as a reported number rather than as the rate behind it.
+    columns:
+      - ProjectMember.costRate
+      - ProjectRole.defaultCostRate
+    readFor: [financeBusinessPartner]
+    writeFor: [financeBusinessPartner]
+
+  - name: Contact Details
+    description: >
+      Personal mobile numbers, client contact details and a client's tax
+      number. These sit on core tables, so they are classified once in the
+      schema and have to be covered by every phase that touches those tables —
+      which is why this profile looks like Phase 4's and says the same thing.
+    columns:
+      - Employee.mobilePhone
+      - Contact.email
+      - Contact.businessPhone
+      - Contact.mobilePhone
+      - Contact.address
+      - Account.taxNumber
+    readFor: [financeBusinessPartner]
+    writeFor: [financeBusinessPartner]
+    # A project manager reaches a client contact and their own team; a resource
+    # manager needs to phone somebody about an allocation. Neither needs a
+    # client's tax number, which is finance's alone.
+    readAlso:
+      projectManager: [Employee.mobilePhone, Contact.email,
+                       Contact.businessPhone, Contact.mobilePhone]
+      resourceManager: [Employee.mobilePhone]
+
+outOfScope:
+  - table: Currency
+    why: The standard transactioncurrency table; read access comes with the basic privileges.
+  - table: ExchangeRate
+    why: >
+      Dataverse provides the exchange rate table itself, so there is no custom
+      table to grant on. A multi-currency project needs to read it; that
+      privilege is part of the standard transactioncurrency access.
+  - table: AuditEvent
+    why: >
+      The platform's own audit log. On the pro-code stack this is the API's
+      request log, which is read through the operations tooling rather than
+      through a role on a table.
+  - table: AppSetting
+    why: Deployment configuration, not application data; it is the organization table.
+
+roles:
+  # ---------------------------------------------------------------------------
+  - code: teamMember
+    name: Work – Team Member
+    description: >
+      Anybody who delivers work and logs time. Sees the projects they are on,
+      the backlog of those projects, and their own timesheets. Cannot see
+      another person's time, and cannot see any cost rate.
+    appliesTo: All delivery staff, assigned through an Entra group.
+    rationale: >
+      The floor. Every grant above is additive, so a reader can tell what a
+      role adds by reading its own rules rather than diffing two matrices.
+    rules:
+      - tables: [ProjectType, ProjectRole, ProjectPhaseDefinition, WorkItemType,
+                 TimeCode, Country, Language, Office, OrgUnit, CostCenter,
+                 LegalEntity, Employee, HolidayCalendar, Holiday]
+        privileges: [read]
+        depth: organization
+        why: >
+          Reference data and the directory. A time entry is coded, charged to a
+          cost centre and logged against a project, so all three have to be
+          readable before an hour can be recorded — and the holiday calendar,
+          because a delivery date that lands on a public holiday is a date
+          nobody checked.
+
+      - tables: [Project, ProjectPhase, ProjectMember, Milestone, Sprint,
+                 StatusReport]
+        privileges: [read]
+        depth: businessUnit
+        why: >
+          A delivery person needs the plan of the projects around them, not
+          only their own. Unit depth rather than own: a project is a team
+          thing, and a team member who can only see rows they created can see
+          nothing at all, because the project manager created them.
+
+      - tables: [WorkItem, WorkItemDependency]
+        privileges: [create, read, write, append, appendTo]
+        depth: businessUnit
+        why: >
+          The backlog is shared and edited by everyone on the project. No
+          delete: a cancelled work item is cancelled, not removed, or the
+          history of what was dropped disappears with it.
+
+      - tables: [Timesheet, TimeEntry]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: user
+        why: >
+          Own time, end to end, including deleting a line before it is
+          submitted. Own depth is the whole point: one person's narrative is
+          commercially sensitive and often legally privileged.
+
+      - tables: [RaidItem]
+        privileges: [create, read, write, append, appendTo]
+        depth: businessUnit
+        why: Anyone on a project can raise a risk; nobody deletes one.
+
+      - tables: [ApprovalRequest, ApprovalStep]
+        privileges: [read]
+        depth: user
+        why: Their own submissions, so a person can see where their timesheet is.
+
+      - tables: [Comment, DocumentReference]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: user
+        why: Their own comments and attachments.
+
+      - tables: [Account, Contact, Term, TermSet]
+        privileges: [read]
+        depth: organization
+        why: >
+          The client a project is for, and the tag vocabulary. Read only —
+          client records belong to the CRM, which this profile does not have.
+
+  # ---------------------------------------------------------------------------
+  - code: projectManager
+    name: Work – Project Manager
+    inherits: teamMember
+    description: >
+      Runs projects: the plan, the team, the backlog, the resourcing requests
+      and the status report. Approves the time logged to their projects. Sees
+      bill rates and budgets, and not cost rates.
+    appliesTo: Project and engagement managers.
+    rationale: >
+      The role the pilot is mostly about. It widens the team member's unit-depth
+      reads into writes and adds approval of other people's time, which is the
+      one privilege that cannot be derived from "runs a project".
+    rules:
+      - tables: [Project, ProjectPhase, ProjectMember, Milestone, Sprint,
+                 StatusReport, ResourceRequest]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: businessUnit
+        why: >
+          A project manager builds the plan and staffs it. Delete is included
+          because a phase or a milestone added in error has no history worth
+          keeping, unlike a work item somebody has already worked on.
+
+      - tables: [Timesheet, TimeEntry]
+        privileges: [read, write]
+        depth: businessUnit
+        why: >
+          Approving time means reading somebody else's narrative and changing
+          its status, so this is the grant that makes a project manager
+          different from a team member. Write, not create: a manager does not
+          log time on another person's behalf, because then nobody knows who
+          did the work.
+
+      - tables: [RaidItem]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: businessUnit
+        why: The RAID log is the project manager's standing agenda.
+
+      - tables: [WorkItem, WorkItemDependency]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: businessUnit
+        why: >
+          Includes delete, unlike the team member, because somebody has to be
+          able to remove a duplicate.
+
+      - tables: [ApprovalPolicy, ApprovalPolicyStep]
+        privileges: [read]
+        depth: organization
+        why: >
+          See which chain a submission will follow. Not write — changing the
+          approval policy for your own projects is the definition of a control
+          failure.
+
+      - tables: [ApprovalRequest, ApprovalStep]
+        privileges: [read, write]
+        depth: businessUnit
+        why: Act on an approval that has been routed to them.
+
+  # ---------------------------------------------------------------------------
+  - code: resourceManager
+    name: Work – Resource Manager
+    description: >
+      Staffs the firm: who is available, who is over-allocated, which requests
+      are unfilled. Sees every project and every allocation, and deliberately
+      not the narratives on time entries.
+    appliesTo: The resourcing function — one or two people.
+    rationale: >
+      Stated in full rather than inherited. A resource manager needs firm-wide
+      breadth that a team member does not have, and does not need the backlog
+      editing or the own-time grants that a team member does, so inheriting
+      would have produced a role that is both too wide and too narrow.
+    rules:
+      - tables: [ProjectType, ProjectRole, ProjectPhaseDefinition, WorkItemType,
+                 TimeCode, Country, Language, Office, OrgUnit, CostCenter,
+                 LegalEntity, Employee, Account, Contact, Term, TermSet, HolidayCalendar, Holiday]
+        privileges: [read]
+        depth: organization
+        why: Reference data and the whole directory, because staffing is firm-wide.
+
+      - tables: [Project, ProjectPhase, Milestone, Sprint, StatusReport,
+                 WorkItem]
+        privileges: [read]
+        depth: organization
+        why: >
+          Every project, because a resource manager cannot balance a firm they
+          can only see part of. Read only — they do not run the projects.
+
+      - tables: [ProjectMember]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: organization
+        why: >
+          Allocations are what this role exists to change. This is the one
+          table where it writes firm-wide.
+
+      - tables: [ResourceRequest]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: organization
+        why: The request queue is this role's inbox.
+
+      - tables: [Timesheet]
+        privileges: [read]
+        depth: organization
+        why: >
+          Hours and billable hours per week, which is what a utilisation
+          report is computed from.
+
+      - tables: [Comment, DocumentReference]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: user
+        why: Their own notes.
+    denied:
+      tables: [TimeEntry]
+      why: >
+        Deliberate, and the most important line in this file. Utilisation is a
+        sum of hours, and the Timesheet row already carries totalHours and
+        billableHours — so the report this role exists to produce needs no
+        access to the individual entries. A narrative says what a named person
+        did for a named client on a named day; a resourcing function has no
+        business reading it, and granting the table "because the report needs
+        hours" is how that access gets justified.
+
+  # ---------------------------------------------------------------------------
+  - code: financeBusinessPartner
+    name: Work – Finance Business Partner
+    description: >
+      Bills the work and reports the margin: rate card, write-offs, invoice
+      references and the cost side. The only role that sees a cost rate.
+    appliesTo: The finance team.
+    rationale: >
+      Also stated in full. Finance needs the money columns and the rate card
+      and has no reason to edit a backlog, so there is nothing useful to
+      inherit from either delivery role.
+    rules:
+      - tables: [ProjectType, ProjectPhaseDefinition, WorkItemType, Country,
+                 Language, Office, OrgUnit, CostCenter, LegalEntity, Employee,
+                 Account, Contact, Term, TermSet, HolidayCalendar, Holiday]
+        privileges: [read]
+        depth: organization
+        why: Reference data and the directory, firm-wide.
+
+      - tables: [ProjectRole, TimeCode]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: organization
+        why: >
+          Finance owns the rate card and the time code list. This is why the
+          Rate Card column profile names this role: the cost rate lives on
+          these two tables and on ProjectMember.
+
+      - tables: [Project, ProjectPhase, ProjectMember, Milestone]
+        privileges: [read, write]
+        depth: organization
+        why: >
+          Read every project to bill it, and write to set the contract value,
+          the budget and the rates on the team. Not create or delete: finance
+          does not open or close projects, delivery does.
+
+      - tables: [Timesheet, TimeEntry]
+        privileges: [read, write]
+        depth: organization
+        why: >
+          Billing is the one function that legitimately reads every narrative,
+          because the narrative is what goes on the client's invoice. Write,
+          to mark an entry billed or written off.
+
+      - tables: [StatusReport, RaidItem, ResourceRequest, Sprint, WorkItem]
+        privileges: [read]
+        depth: organization
+        why: >
+          Context for a conversation about an overrun. A cost impact on a RAID
+          item is a number finance has to be able to see coming.
+
+      - tables: [ApprovalPolicy, ApprovalPolicyStep]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: organization
+        why: >
+          Finance owns the approval thresholds, which is the control that keeps
+          a project manager from raising their own limit.
+
+      - tables: [ApprovalRequest, ApprovalStep]
+        privileges: [read, write]
+        depth: organization
+        why: Act on approvals routed to finance.
+
+      - tables: [Comment, DocumentReference]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: user
+        why: Their own notes and attachments.

@@ -294,3 +294,44 @@ onboarding:
 - name: 30-day review
   role: manager
   offsetDays: 30
+# Delivery configuration — Phase 3. An accounting firm runs engagements with
+# statutory phases and a fee split per phase, not sprints.
+work:
+  cadence: phases
+  weeklyHours: 37.5
+  utilisationTarget: 0.78
+  billableDepartments: [AUD, TAX, ADV]
+  projectTypes:
+  - code: AUDIT
+    name: Statutory audit
+    model: fixedFee
+    phases: [Planning, Interim, Fieldwork, Completion, Reporting]
+  - code: TAXCOMP
+    name: Tax compliance
+    model: fixedFee
+    phases: [Data gathering, Computation, Review, Filing]
+  - code: ADVISORY
+    name: Advisory engagement
+    model: timeAndMaterials
+    phases: [Scoping, Analysis, Recommendations]
+  - code: INTERNAL
+    name: Internal / practice development
+    model: nonBillable
+    internal: true
+    phases: [Delivery]
+  roles:
+  - { code: PTNR, name: Engagement partner, billRate: 420, costRate: 210 }
+  - { code: DIR,  name: Director,           billRate: 310, costRate: 165 }
+  - { code: MGR,  name: Manager,            billRate: 215, costRate: 112 }
+  - { code: SNR,  name: Senior associate,   billRate: 155, costRate: 78 }
+  - { code: ASC,  name: Associate,          billRate: 110, costRate: 54 }
+  timeCodes:
+  - { code: FIELD,    name: Fieldwork,            billable: true,  share: 0.30 }
+  - { code: REVIEW,   name: Review,               billable: true,  share: 0.14 }
+  - { code: PLAN,     name: Planning,             billable: true,  share: 0.11 }
+  - { code: CLIENT,   name: Client meetings,      billable: true,  share: 0.10 }
+  - { code: REPORT,   name: Reporting,            billable: true,  share: 0.09 }
+  - { code: TAXPREP,  name: Tax preparation,      billable: true,  share: 0.09 }
+  - { code: CPD,      name: CPD and training,     billable: false, share: 0.07 }
+  - { code: ADMIN,    name: Admin and overhead,   billable: false, share: 0.06 }
+  - { code: BD,       name: Business development, billable: false, share: 0.04 }

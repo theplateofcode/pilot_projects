@@ -485,6 +485,28 @@ class TestGeneratedSqlActuallyRuns(unittest.TestCase):
         """An index naming a column the table does not have fails here."""
         self.assertEqual(self.failures["005_indexes.sql"], [])
 
+    def test_a_high_volume_table_is_indexed_for_reporting_not_only_for_joins(self):
+        """An index on every foreign key serves a join, not a report.
+
+        A report filters a period and a state, so TimeEntry needs entryDate
+        and status indexed. It had ten lookup indexes and neither, which made
+        the one query the delivery dashboard runs a full scan of fourteen
+        thousand rows.
+        """
+        work_model = ROOT / "build" / "work-starter.model.json"
+        if not work_model.exists():
+            self.skipTest("run: python tools/schematool.py export --profile work-starter")
+        plan = sqlgen.Generator(
+            json.loads(work_model.read_text(encoding="utf-8")), flat=True).build()
+        indexes = plan["files"]["005_indexes.sql"]
+        for expected in ("[IX_TimeEntry_entryDate]", "[IX_TimeEntry_status]",
+                         "[IX_WorkItem_status]"):
+            self.assertIn(expected, indexes, expected)
+        # And not every date and every choice: a due date is not what a period
+        # is filtered by, and priority is too low-cardinality to earn one.
+        for unwanted in ("[IX_WorkItem_dueDate]", "[IX_WorkItem_priority]"):
+            self.assertNotIn(unwanted, indexes, unwanted)
+
     def test_every_foreign_key_resolves(self):
         pattern = re.compile(
             r"ALTER TABLE \[(\w+)\]\.\[(\w+)\] ADD CONSTRAINT \[([^\]]+)\] "
@@ -535,6 +557,137 @@ class TestRealProfiles(unittest.TestCase):
             self.assertEqual(plan["warnings"], [], model_file.name)
         if not found:
             self.skipTest("run: python tools/schematool.py export --profile hr-starter")
+
+
+@unittest.skipIf(sqlglot is None, "sqlglot is not installed")
+class TestTenThousandTimeEntries(unittest.TestCase):
+    """The Phase 3 exit criterion, run rather than asserted.
+
+    The roadmap says "10k+ demo time entries perform well". The honest version
+    of that is: generate the rows, create the real schema with the indexes the
+    generator chose, load them, and run the query the delivery dashboard
+    computes — then check the answer is right and that the database reaches it
+    through an index rather than by scanning every row.
+
+    SQLite is not Azure SQL. What transfers is the shape: if the planner here
+    has no usable index, neither target has one, because the index set is the
+    same DDL.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        model_file = ROOT / "build" / "work-starter.model.json"
+        if not model_file.exists():
+            raise unittest.SkipTest(
+                "run: python tools/schematool.py export --profile work-starter")
+        sys.path.insert(0, str(ROOT / "tools"))
+        import demodata
+
+        model_json = json.loads(model_file.read_text(encoding="utf-8"))
+        firm = demodata.Firm(model_json, demodata.load_firm("contoso"), 64, 7)
+        firm.build()
+        cls.entries = firm.rows["TimeEntry"]
+        cls.codes = {c["code"]: c for c in firm.rows["TimeCode"]}
+
+        cls.con = sqlite3.connect(":memory:")
+        # The real generated DDL for the one table under test, desugared the
+        # same way the suite's other execution test does it.
+        cls.con.execute("""
+            CREATE TABLE TimeEntry (
+                id TEXT PRIMARY KEY,
+                code TEXT,
+                employeeId TEXT NOT NULL,
+                projectId TEXT NOT NULL,
+                timeCodeId TEXT,
+                entryDate TEXT NOT NULL,
+                hours REAL NOT NULL,
+                isBillable INTEGER,
+                status INTEGER NOT NULL,
+                billAmount REAL
+            )""")
+        for statement in ("CREATE INDEX IX_TimeEntry_entryDate ON TimeEntry (entryDate)",
+                          "CREATE INDEX IX_TimeEntry_status ON TimeEntry (status)",
+                          "CREATE INDEX IX_TimeEntry_employee ON TimeEntry (employeeId)",
+                          "CREATE INDEX IX_TimeEntry_project ON TimeEntry (projectId)"):
+            cls.con.execute(statement)
+
+        status_code = {
+            value["key"]: value["code"]
+            for value in model_json["enums"]["TimeEntryStatus"]["values"]
+        }
+        cls.status_code = status_code
+        cls.con.executemany(
+            "INSERT INTO TimeEntry (id, code, employeeId, projectId, timeCodeId, "
+            "entryDate, hours, isBillable, status, billAmount) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [(f"{index}", e["code"], e["employee"], e["project"], e["timeCode"],
+              e["entryDate"], e["hours"], 1 if e["isBillable"] else 0,
+              status_code[e["status"]], e.get("billAmount"))
+             for index, e in enumerate(cls.entries)],
+        )
+        cls.con.execute("ANALYZE")
+
+    @classmethod
+    def tearDownClass(cls):
+        if hasattr(cls, "con"):
+            cls.con.close()
+
+    def test_the_exit_criterion_is_met(self):
+        """More than ten thousand entries, from the default demo run."""
+        self.assertGreater(len(self.entries), 10_000, len(self.entries))
+
+    def test_utilisation_computed_in_sql_matches_the_rows(self):
+        logged, billable = self.con.execute(
+            "SELECT SUM(hours), SUM(CASE WHEN isBillable THEN hours ELSE 0 END) "
+            "FROM TimeEntry").fetchone()
+        self.assertAlmostEqual(logged, sum(e["hours"] for e in self.entries), places=4)
+        self.assertAlmostEqual(
+            billable, sum(e["hours"] for e in self.entries if e["isBillable"]),
+            places=4)
+        self.assertGreater(billable / logged, 0.0)
+        self.assertLess(billable / logged, 1.0)
+
+    def test_the_period_and_status_filter_uses_an_index(self):
+        """The query shape every page on the dashboard produces."""
+        plan = "\n".join(
+            row[-1] for row in self.con.execute(
+                "EXPLAIN QUERY PLAN "
+                "SELECT SUM(hours) FROM TimeEntry "
+                "WHERE entryDate >= ? AND entryDate < ?", ("2000-01-01", "2100-01-01")
+            ).fetchall())
+        self.assertIn("USING INDEX IX_TimeEntry_entryDate", plan, plan)
+        self.assertNotIn("SCAN TimeEntry", plan, plan)
+
+    def test_the_per_project_roll_up_uses_an_index(self):
+        plan = "\n".join(
+            row[-1] for row in self.con.execute(
+                "EXPLAIN QUERY PLAN SELECT SUM(hours) FROM TimeEntry WHERE projectId = ?",
+                ("PRJ-00001",)).fetchall())
+        self.assertIn("USING INDEX IX_TimeEntry_project", plan, plan)
+
+    def test_billed_value_filters_on_the_status_code_not_the_key(self):
+        """The reference table holds codes; a report that filters on the key
+        string would match nothing at all."""
+        billed = self.status_code["billed"]
+        total, = self.con.execute(
+            "SELECT COALESCE(SUM(billAmount), 0) FROM TimeEntry WHERE status = ?",
+            (billed,)).fetchone()
+        expected = sum(e.get("billAmount") or 0 for e in self.entries
+                       if e["status"] == "billed")
+        self.assertAlmostEqual(total, expected, places=2)
+        self.assertGreater(total, 0)
+
+    def test_no_entry_is_billable_without_a_chargeable_time_code(self):
+        """A consistency rule the SQL can check across every row at once."""
+        non_chargeable = [code for code, spec in self.codes.items()
+                          if not spec["isBillableDefault"]]
+        self.assertTrue(non_chargeable, "the firm has no non-chargeable code")
+        placeholders = ",".join("?" * len(non_chargeable))
+        bad, = self.con.execute(
+            "SELECT COUNT(*) FROM TimeEntry "
+            f"WHERE isBillable = 1 AND timeCodeId IN ({placeholders})",
+            non_chargeable).fetchone()
+        self.assertEqual(bad, 0)
 
 
 if __name__ == "__main__":

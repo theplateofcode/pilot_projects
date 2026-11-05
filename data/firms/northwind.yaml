@@ -226,3 +226,42 @@ onboarding:
 - name: 30-day review
   role: manager
   offsetDays: 30
+# Delivery configuration — Phase 3. A generic firm, so generic project types:
+# the point of this firm is that nothing about it is industry-specific.
+work:
+  cadence: phases
+  weeklyHours: 37.5
+  utilisationTarget: 0.70
+  billableDepartments: [SVC, OPS]
+  projectTypes:
+  - code: CLIENT
+    name: Client project
+    model: timeAndMaterials
+    phases: [Mobilisation, Delivery, Close]
+  - code: FIXED
+    name: Fixed-price project
+    model: fixedFee
+    phases: [Scoping, Delivery, Acceptance]
+  - code: RETAIN
+    name: Retained service
+    model: retainer
+    phases: [Onboarding, Steady state]
+  - code: INTERNAL
+    name: Internal project
+    model: nonBillable
+    internal: true
+    phases: [Delivery]
+  roles:
+  - { code: LEAD, name: Engagement lead,  billRate: 240, costRate: 125 }
+  - { code: CONS, name: Consultant,       billRate: 160, costRate: 82 }
+  - { code: ANAL, name: Analyst,          billRate: 105, costRate: 52 }
+  - { code: PMO,  name: Project manager,  billRate: 175, costRate: 90 }
+  timeCodes:
+  - { code: DELIVERY, name: Delivery work,         billable: true,  share: 0.38 }
+  - { code: CLIENT,   name: Client meetings,       billable: true,  share: 0.14 }
+  - { code: ANALYSIS, name: Analysis,              billable: true,  share: 0.13 }
+  - { code: PM,       name: Project management,    billable: true,  share: 0.11 }
+  - { code: REPORT,   name: Reporting,             billable: true,  share: 0.08 }
+  - { code: INTERNAL, name: Internal project,      billable: false, share: 0.07 }
+  - { code: ADMIN,    name: Admin and overhead,    billable: false, share: 0.06 }
+  - { code: TRAIN,    name: Training,              billable: false, share: 0.03 }

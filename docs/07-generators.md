@@ -156,6 +156,11 @@ Not a list of features: these are defects the checks found in this repo's own ou
 | deriving the approvable tables from the model | three tables have no rejected-like status value, so a rejection had nowhere to go |
 | comparing five firms | the leave entitlement was hardcoded at 25 days, so Contoso's 20-day PTO and Fabrikam's 27 days were both ignored |
 | `sqlgen` executed against SQLite | nothing, after the first pass — which is the point of running the DDL rather than asserting on its text |
+| building the fourth pilot (Phase 3) | **every one of the four generated Power BI semantic models carried three or four relationship pairs Power BI cannot load.** `_choose_active` keyed on the ordered pair, so `Employee -> OrgUnit` and `OrgUnit.head -> Employee` both stayed active. Builds were green and the manifests were consistent; none of the models would have opened |
+| the test that was meant to catch that | it keyed on the ordered pair too — the same mistake — and `TestRealDashboard` only ever loaded the HR spec, so three of the four dashboards were never built by a test at all. A guard that reproduces the generator's bug is worse than no guard, because it is read as evidence |
+| `secgen`'s matrix, read line by line | it showed one depth per cell, the widest, so a project manager who reads their unit's time but creates only their own rendered as `CRUD (unit)` — a claim the role does not make, in the artefact a reviewer approves. Two cells in Phase 1's matrix and four in Phase 4's were overstated |
+| running the Phase 3 query against 14,000 rows | `sqlgen` indexed every foreign key and nothing else. An index on a foreign key serves a join, not a report, and a report filters a period and a state — so the only query shape a `volume: high` table ever sees was a full scan |
+| the dataviz series limit, applied to a table | a table's measures are columns of numbers and nothing is identified by colour, so the three-series colour rule argued for splitting a readable four-column table in two |
 | building the third pilot (Phase 4) | `secgen` did not delete role files from an earlier run, and `solgen` packs that directory wholesale, so **three HR security roles shipped inside the travel solution** — six roles in a solution that specifies three. Nothing failed; the manifest was internally consistent and simply wrong |
 | the same class, in `pbigen` | the travel Power BI project shipped a theme file named `WoodgroveHR.json` and a `pages.md` claiming it came from `hr-dashboard.yaml`, both hardcoded from the first report the tool ever generated |
 | `secgen`, after Phase 4 | a table declared `outOfScope` and then granted anyway, so the matrix said the travel desk could not read a currency every traveller could. Now an error |
@@ -180,6 +185,8 @@ The tests are not uniform, because what is checkable differs by target.
 | `demodata` | every row against the model, plus four invariants the model implies |
 | all of them | [`test_consistency.py`](../tests/test_consistency.py) checks the seams, including that every generator runs with no errors and no warnings |
 | output directories | `secgen` and `pbigen` each have a test that reintroduces a stale file from an earlier run and asserts it is deleted, and `solgen` has one asserting it refuses to pack a role its input report does not name. With `appgen`'s per-profile output directory from Phase 2, that is four instances of one bug — a pattern, not bad luck |
+| every committed spec, not just the first | `TestEveryCommittedDashboard` builds all four `powerbi/*.yaml` specs against their own profiles' models, because three of them had never been built by a test. The same reasoning applies to the roles files and the app specs, which `test_consistency.py` covers |
+| volume | the Phase 3 exit criterion is executed: 14,000 generated time entries are loaded into the generated schema and the dashboard's own query is run against them, asserting the aggregate matches a Python calculation and that the planner uses an index rather than scanning |
 
 ```bash
 python -m unittest discover -s tests

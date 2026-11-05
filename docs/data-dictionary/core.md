@@ -183,6 +183,7 @@ Internal organisational unit (division, department, team, practice group, studio
 | `legalEntity` | lookup([LegalEntity](#legalentity)) |  | Lookup → LegalEntity | Lookup → LegalEntity | uniqueidentifier FK → LegalEntity |  |
 | `defaultCostCenter` | lookup([CostCenter](#costcenter)) |  | Lookup → CostCenter | Lookup → CostCenter | uniqueidentifier FK → CostCenter |  |
 | `entraGroupId` | string(36) |  | Text (36) | Single line of text | nvarchar(36) | Entra ID group that mirrors this unit. Used for audience targeting and security sync. |
+| `isDeliveryUnit` | boolean |  | Yes/No | Yes/No | bit | Whether this unit's people charge their time to clients. Nothing else in the model implies it — unitType says what shape a unit is, not whether it earns fees — and a utilisation report cannot be computed without it: dividing billable hours by all hours across a whole firm reports the firm's billable headcount ratio, not its utilisation. Set it on the fee-earning departments, practice groups or studios and leave it false on the support functions. |
 | `description` | text |  | Multiline text | Multiple lines (plain) | nvarchar(max) |  |
 
 ### CostCenter

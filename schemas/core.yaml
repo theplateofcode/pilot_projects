@@ -299,6 +299,15 @@ entities:
       entraGroupId:
         type: string(36)
         description: Entra ID group that mirrors this unit. Used for audience targeting and security sync.
+      isDeliveryUnit:
+        type: boolean
+        description: >-
+          Whether this unit's people charge their time to clients. Nothing else in the model
+          implies it — unitType says what shape a unit is, not whether it earns fees — and a
+          utilisation report cannot be computed without it: dividing billable hours by all
+          hours across a whole firm reports the firm's billable headcount ratio, not its
+          utilisation. Set it on the fee-earning departments, practice groups or studios and
+          leave it false on the support functions.
       description: text
 
   CostCenter:

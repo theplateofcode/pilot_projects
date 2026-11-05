@@ -292,3 +292,45 @@ onboarding:
 - name: 30-day review
   role: manager
   offsetDays: 30
+# Delivery configuration — Phase 3. An architecture practice runs RIBA work
+# stages, and the fee is split across them — which is why the phase definition
+# carries a default fee percentage at all.
+work:
+  cadence: phases
+  weeklyHours: 37.5
+  utilisationTarget: 0.75
+  billableDepartments: [HEA, EDU, RES, HER, TEC]
+  projectTypes:
+  - code: NEWBUILD
+    name: New build
+    model: percentageOfValue
+    phases: [Preparation and brief, Concept design, Developed design, Technical design, Construction, Handover]
+  - code: REFURB
+    name: Refurbishment
+    model: fixedFee
+    phases: [Survey, Concept design, Technical design, Construction]
+  - code: FEASIBILITY
+    name: Feasibility study
+    model: fixedFee
+    phases: [Appraisal, Options, Report]
+  - code: PRACTICE
+    name: Practice and competitions
+    model: nonBillable
+    internal: true
+    phases: [Delivery]
+  roles:
+  - { code: DIR,  name: Project director,   billRate: 185, costRate: 96 }
+  - { code: ARCH, name: Architect,          billRate: 135, costRate: 70 }
+  - { code: TECH, name: Architectural technologist, billRate: 110, costRate: 56 }
+  - { code: ASST, name: Part II assistant,  billRate: 85,  costRate: 42 }
+  - { code: LAND, name: Landscape designer, billRate: 120, costRate: 62 }
+  timeCodes:
+  - { code: DESIGN,  name: Design,                 billable: true,  share: 0.31 }
+  - { code: DRAW,    name: Drawing and modelling,  billable: true,  share: 0.19 }
+  - { code: SITE,    name: Site visits,            billable: true,  share: 0.11 }
+  - { code: CLIENT,  name: Client meetings,        billable: true,  share: 0.10 }
+  - { code: PLAN,    name: Planning submissions,   billable: true,  share: 0.09 }
+  - { code: COORD,   name: Consultant coordination, billable: true, share: 0.08 }
+  - { code: COMP,    name: Competitions,           billable: false, share: 0.05 }
+  - { code: ADMIN,   name: Admin and overhead,     billable: false, share: 0.04 }
+  - { code: CPD,     name: CPD and training,       billable: false, share: 0.03 }

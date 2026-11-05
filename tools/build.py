@@ -63,11 +63,14 @@ TARGETS = ("schema", "dataverse", "powerbi", "sql", "sharepoint", "demo")
 # disagrees, which is what keeps a Phase 1 spec out of a Phase 2 build.
 SPECS = {
     "security": {"hr-starter": "phase1-roles.yaml", "law-firm-crm": "crm-roles.yaml",
-                 "travel-starter": "travel-roles.yaml"},
+                 "travel-starter": "travel-roles.yaml",
+                 "work-starter": "work-roles.yaml"},
     "apps": {"hr-starter": "hr-admin.yaml", "law-firm-crm": "crm-intake.yaml",
-             "travel-starter": "travel-desk.yaml"},
+             "travel-starter": "travel-desk.yaml",
+             "work-starter": "project-delivery.yaml"},
     "powerbi": {"hr-starter": "hr-dashboard.yaml", "law-firm-crm": "crm-dashboard.yaml",
-                "travel-starter": "travel-dashboard.yaml"},
+                "travel-starter": "travel-dashboard.yaml",
+                "work-starter": "work-dashboard.yaml"},
 }
 
 

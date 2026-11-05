@@ -1,0 +1,120 @@
+# The Project Delivery app — Phase 3.
+#
+# Phase 3's showcase stack is pro-code (React, an API, Azure SQL), so this app
+# is the low-code alternative the roadmap allows for the same schema — and it
+# doubles as the information architecture the React front end follows, because
+# the grouping below is the argument about what belongs next to what.
+#
+# The order is the week of somebody running delivery: what is on fire, what is
+# being worked, what is being staffed, what is being billed.
+#
+#   python tools/appgen.py --profile work-starter --prefix ctw \
+#       --app apps/project-delivery.yaml --roles security/work-roles.yaml
+
+meta:
+  name: Project Delivery
+  profile: work-starter
+  prefix: ctw
+  description: >
+    Contoso's delivery app. Projects and phases, the backlog, resourcing,
+    timesheets and the RAID log, with the rate card held by finance.
+  # The four roles from security/work-roles.yaml. A team member opens this app
+  # too and sees their own time and their projects' backlog; the sub-areas that
+  # are empty for them are empty because the role says so, not because the app
+  # hides them.
+  roles: [teamMember, projectManager, resourceManager, financeBusinessPartner]
+
+areas:
+  - id: delivery
+    name: Delivery
+    icon: Project
+    groups:
+      - id: projects
+        name: Projects
+        tables: [Project, ProjectPhase, Milestone]
+        note: >
+          Project first, and phases and milestones beside it rather than under
+          a separate "planning" area: a phase with no milestone is a plan with
+          no commitment, and keeping them one click apart is how that goes
+          unnoticed.
+      - id: health
+        name: Health
+        tables: [StatusReport, RaidItem]
+        note: >
+          A status report says what the project manager thinks; the RAID log
+          says what the project manager wrote down. Together they are the
+          delivery review, which is why they are one group.
+
+  - id: work
+    name: Work
+    icon: TaskList
+    groups:
+      - id: backlog
+        name: Backlog
+        tables: [WorkItem, WorkItemDependency]
+      - id: iterations
+        name: Iterations
+        tables: [Sprint]
+        note: >
+          Sprints exist for a firm that runs them. A practice running matter
+          phases simply has no rows here, which is the schema serving both
+          cadences rather than two schemas.
+
+  - id: people
+    name: Resourcing
+    icon: People
+    groups:
+      - id: allocations
+        name: Allocations
+        tables: [ProjectMember]
+        note: >
+          ProjectMember carries the cost rate, which is the one secured column
+          in this app. The form puts it in a Sensitive section and the role
+          matrix says only finance reads it.
+      - id: requests
+        name: Requests
+        tables: [ResourceRequest]
+        note: >
+          The resourcing queue. Unfilled requests are the number a delivery
+          director asks for, so they get their own sub-area rather than a
+          filter on allocations.
+      - id: directory
+        name: Directory
+        tables: [Employee, OrgUnit, CostCenter]
+
+  - id: time
+    name: Time
+    icon: Clock
+    groups:
+      - id: timesheets
+        name: Timesheets
+        tables: [Timesheet, TimeEntry]
+        note: >
+          A team member sees their own, a project manager their unit's. The
+          resource manager sees Timesheet and not TimeEntry, which is the
+          deliberate boundary in the roles file: utilisation needs hours, not
+          narratives.
+      - id: approvals
+        name: Approvals
+        tables: [ApprovalRequest, ApprovalStep]
+
+  - id: setup
+    name: Setup
+    icon: Settings
+    groups:
+      - id: ratecard
+        name: Rate card
+        tables: [ProjectRole, TimeCode]
+        note: Finance's tables. Everyone else reads them.
+      - id: catalogue
+        name: Catalogue
+        tables: [ProjectType, ProjectPhaseDefinition, WorkItemType]
+      - id: policy
+        name: Approval policy
+        tables: [ApprovalPolicy, ApprovalPolicyStep]
+      - id: clients
+        name: Clients
+        tables: [Account, Contact]
+        note: >
+          Read-only here. The CRM module is not in this profile; these are core
+          tables carrying the client a project is for.

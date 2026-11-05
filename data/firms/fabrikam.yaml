@@ -292,3 +292,60 @@ onboarding:
 - name: 30-day review
   role: manager
   offsetDays: 30
+# Delivery configuration — Phase 3. A law firm runs matters, and the phases are
+# the stages of the matter rather than a project plan.
+work:
+  cadence: phases
+  weeklyHours: 37.5
+  utilisationTarget: 0.80
+  billableDepartments: [COR, RE, EMP, LIT]
+  # These codes are deliberately the same as the service offerings the CRM
+  # pitches, so a matter opened from a won pitch and one opened directly are
+  # the same kind of thing. Diverging codes gave this firm both an "MA" and a
+  # "COR_MA" matter type, which is how a reference list rots.
+  projectTypes:
+  - code: COR_MA
+    name: Mergers and acquisitions
+    model: fixedFee
+    phases: [Instruction, Due diligence, Negotiation, Completion]
+  - code: COR_FIN
+    name: Banking and finance
+    model: timeAndMaterials
+    phases: [Instruction, Structuring, Documentation, Completion]
+  - code: RE_COMM
+    name: Commercial property
+    model: fixedFee
+    phases: [Instruction, Title and searches, Exchange, Completion]
+  - code: EMP_ADV
+    name: Employment advisory retainer
+    model: retainer
+    phases: [Onboarding, Steady state]
+  - code: LIT_COMM
+    name: Commercial litigation
+    model: timeAndMaterials
+    phases: [Pre-action, Pleadings, Disclosure, Trial preparation, Hearing]
+  - code: LIT_EMP
+    name: Employment tribunal
+    model: cappedFee
+    phases: [Instruction, Preparation, Hearing]
+  - code: PRACTICE
+    name: Practice and pro bono
+    model: nonBillable
+    internal: true
+    phases: [Delivery]
+  roles:
+  - { code: PTNR, name: Partner,           billRate: 520, costRate: 260 }
+  - { code: SASC, name: Senior associate,  billRate: 360, costRate: 180 }
+  - { code: ASC,  name: Associate,         billRate: 250, costRate: 124 }
+  - { code: TRN,  name: Trainee,           billRate: 140, costRate: 62 }
+  - { code: PARA, name: Paralegal,         billRate: 120, costRate: 52 }
+  timeCodes:
+  - { code: DRAFT,   name: Drafting,              billable: true,  share: 0.26 }
+  - { code: ADVICE,  name: Advice and research,   billable: true,  share: 0.18 }
+  - { code: CLIENT,  name: Client meetings,       billable: true,  share: 0.13 }
+  - { code: NEGOT,   name: Negotiation,           billable: true,  share: 0.11 }
+  - { code: DILIG,   name: Due diligence,         billable: true,  share: 0.10 }
+  - { code: COURT,   name: Court and hearings,    billable: true,  share: 0.07 }
+  - { code: KM,      name: Know-how and CPD,      billable: false, share: 0.06 }
+  - { code: ADMIN,   name: Admin and overhead,    billable: false, share: 0.05 }
+  - { code: PROBONO, name: Pro bono,              billable: false, share: 0.04 }

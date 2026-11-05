@@ -541,7 +541,52 @@ class Generator:
                         f"({quote(physical)});")
 
             lines.extend(self._effective_dating_index(entity, attributes))
+            lines.extend(self._reporting_indexes(entity, spec, attributes))
         return "\n".join(lines) + "\n"
+
+    def _reporting_indexes(self, entity: str, spec: dict[str, Any],
+                           attributes: dict[str, Any]) -> list[str]:
+        """Index what a high-volume table is actually filtered by.
+
+        Every foreign key is indexed above, which serves a join. It does not
+        serve a report, and a report is what a high-volume table exists to feed:
+        the filter is always a date range and a state. TimeEntry is marked
+        volume: high, carries fourteen thousand demo rows, and had an index on
+        all ten of its lookups and none on entryDate or status — so the one
+        query the delivery dashboard runs was a full scan.
+
+        Narrow on purpose: the row's own required date, and the column the
+        model's convention calls `status`. Not every date (a due date is not
+        what you filter a period by) and not every choice (priority is
+        low-cardinality and an index on it earns nothing).
+        """
+        if spec.get("volume") != "high":
+            return []
+        wanted = [
+            attr for attr, column in attributes.items()
+            if not column.get("trait")
+            and ((column["type"] in ("date", "datetime") and column.get("required"))
+                 or attr == "status")
+        ]
+        lines = []
+        for attr in wanted:
+            physical = self._physical(attributes, attr)
+            if physical is None or attributes[attr].get("unique"):
+                continue
+            if attributes[attr].get("indexed"):
+                continue                   # already written above
+            name = f"IX_{entity}_{attr}"
+            lines.append(
+                f"IF INDEXPROPERTY(OBJECT_ID('{self.schema_of(entity)}.{entity}'), "
+                f"'{name}', 'IndexID') IS NULL\n"
+                f"CREATE INDEX {quote(name)} ON {self.ref(entity)} "
+                f"({quote(physical)});")
+        if lines:
+            self.notes.append(
+                f"{entity} is volume: high, so "
+                f"{', '.join(wanted)} {'is' if len(wanted) == 1 else 'are'} "
+                "indexed for reporting as well as its foreign keys")
+        return lines
 
     def _effective_dating_index(self, entity: str,
                                 attributes: dict[str, Any]) -> list[str]:

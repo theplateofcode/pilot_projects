@@ -7,7 +7,7 @@ feeding the tools hostile input rather than by reading them and concluding they 
 It covers the **tooling**, not the data model's own security design — that is
 [Phase 1 §3](06-phase1-core-hr.md#3-security) and [Phase 2 §2](08-phase2-crm.md#2-security-selling-and-clearing-are-different-jobs).
 
-Last run against 617 tests, all green.
+Last run against 635 tests, all green.
 
 ---
 

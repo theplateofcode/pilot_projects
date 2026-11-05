@@ -83,6 +83,7 @@ class FirmConfig:
     leave: dict[str, Any]
     holiday_calendar: dict[str, Any]
     onboarding: list[dict[str, Any]]
+    work: dict[str, Any]
 
     @property
     def name(self) -> str:
@@ -100,6 +101,28 @@ class FirmConfig:
     def salary_band(self, rung: dict[str, Any]) -> tuple[int, int]:
         low, high = rung["salary"]
         return int(low), int(high)
+
+    @property
+    def runs_sprints(self) -> bool:
+        """A software company runs iterations; a practice runs matter phases.
+
+        Same tables either way — only the cadence differs, which is the whole
+        argument for one work module serving both.
+        """
+        return str(self.work.get("cadence", "phases")) == "sprints"
+
+    def is_billable_department(self, code: str) -> bool:
+        """Whether this department's people charge their time to clients.
+
+        Defaults to every department the firm files mark as a DELIVERY family,
+        which is right for a practice. A software company overrides it, because
+        its billable people sit in Engineering, whose family is IT.
+        """
+        declared = self.work.get("billableDepartments")
+        if declared:
+            return code in set(declared)
+        return any(d["code"] == code and d.get("family") == "DELIVERY"
+                   for d in self.departments)
 
 
 REQUIRED_FIRM_KEYS = ("name", "code", "country", "currency", "domain")
@@ -142,6 +165,48 @@ def load_firm(slug: str) -> FirmConfig:
     if len(codes) != len(set(codes)):
         raise DataError(f"{path.name}: duplicate department codes")
 
+    work = raw.get("work") or {}
+    if work:
+        if work.get("cadence") not in ("phases", "sprints"):
+            raise DataError(
+                f"{path.name}: work.cadence must be 'phases' or 'sprints', "
+                f"not {work.get('cadence')!r}")
+        for section, fields in (("projectTypes", ("code", "name", "model", "phases")),
+                                ("roles", ("code", "name", "billRate", "costRate")),
+                                ("timeCodes", ("code", "name", "billable", "share"))):
+            rows = work.get(section) or []
+            if not rows:
+                raise DataError(f"{path.name}: work has no '{section}'")
+            for index, row in enumerate(rows):
+                for field_name in fields:
+                    if row.get(field_name) is None:
+                        raise DataError(
+                            f"{path.name}: work.{section}[{index}] has no "
+                            f"'{field_name}'")
+            seen = [row["code"] for row in rows]
+            if len(seen) != len(set(seen)):
+                raise DataError(f"{path.name}: duplicate work.{section} codes")
+        total = sum(float(row["share"]) for row in work["timeCodes"])
+        if not 0.95 <= total <= 1.05:
+            raise DataError(
+                f"{path.name}: work.timeCodes shares add up to {total:.2f}, "
+                "not ~1.0")
+        # A department named here that does not exist means a firm whose
+        # billable half is silently empty, and a utilisation report of zeros.
+        unknown = [c for c in (work.get("billableDepartments") or [])
+                   if c not in set(codes)]
+        if unknown:
+            raise DataError(
+                f"{path.name}: work.billableDepartments names "
+                f"{', '.join(unknown)}, which are not departments of this firm")
+        # A cost rate above the bill rate is a loss-making role, which is
+        # always a typo in demo data rather than a business decision.
+        for index, role in enumerate(work["roles"]):
+            if float(role["costRate"]) >= float(role["billRate"]):
+                raise DataError(
+                    f"{path.name}: work.roles[{index}] ({role['code']}) has a "
+                    "cost rate at or above its bill rate")
+
     return FirmConfig(
         slug=slug,
         profile=str(raw.get("profile", "")),
@@ -155,6 +220,7 @@ def load_firm(slug: str) -> FirmConfig:
         leave=raw["leave"],
         holiday_calendar=raw["holidayCalendar"],
         onboarding=raw["onboarding"],
+        work=raw.get("work") or {},
     )
 
 
@@ -282,6 +348,41 @@ DESTINATIONS = [
 RISK_RANK = {"low": 1, "medium": 2, "high": 3, "extreme": 4}
 
 # What a trip's expenses are made of, as a share of the claim.
+# A four-point scale multiplied out, so a RAID severity score is probability
+# times impact rather than a number somebody invented.
+IMPACT_SCORE = {"low": 1, "medium": 2, "high": 3, "veryHigh": 4}
+WORK_ITEM_SUBJECTS = [
+    "data model review", "client sign-off pack", "migration dry run",
+    "access provisioning", "integration endpoint", "reporting layer",
+    "performance pass", "accessibility audit", "cutover plan",
+    "training material", "handover documentation", "defect triage",
+    "environment refresh", "security review", "stakeholder workshop",
+]
+RAID_SUBJECTS = [
+    "client data arriving late", "a dependency on a third-party release",
+    "scope added without a change order", "key person on leave at cutover",
+    "legacy system access not granted", "test environment unavailable",
+    "regulatory sign-off outstanding", "a fixed-fee phase running over",
+    "an assumption about data quality", "the integration contract changing",
+]
+# How many weeks of timesheet history a full run generates. 44 is a working
+# year less holiday, which at the default headcount clears the roadmap's
+# 10,000-time-entry exit criterion without inventing a decade of history.
+TIMESHEET_WEEKS = 44
+# Entries a person logs in a week. More than one a day, because a consultant
+# splits a day across a client call, the work itself and an internal task —
+# and a timesheet with one row a day is not a timesheet anyone recognises.
+ENTRIES_PER_WEEK = (4, 9)
+# The shape of a work item backlog, as a share of the items on a project.
+WORK_ITEM_MIX = [
+    {"code": "STORY", "name": "Story", "category": "story", "share": 0.34},
+    {"code": "TASK", "name": "Task", "category": "task", "share": 0.28},
+    {"code": "BUG", "name": "Bug", "category": "bug", "share": 0.14},
+    {"code": "DELIV", "name": "Deliverable", "category": "deliverable", "share": 0.10},
+    {"code": "FEAT", "name": "Feature", "category": "feature", "share": 0.07},
+    {"code": "ISSUE", "name": "Issue", "category": "issue", "share": 0.04},
+    {"code": "EPIC", "name": "Epic", "category": "epic", "share": 0.03},
+]
 # Each category carries the typical spend and the policy limit it is judged
 # against, so an over-limit line is the natural consequence of the draw rather
 # than a flag set at random. HOTEL is per night and its limit matches the
@@ -320,13 +421,18 @@ class Firm:
     """Builds one coherent firm. Every method appends to self.rows."""
 
     def __init__(self, model: dict[str, Any], config: FirmConfig, people: int,
-                 seed: int):
+                 seed: int, weeks: int = TIMESHEET_WEEKS):
         self.model = model
         self.config = config
         self.entities = model.get("entities", {})
         self.enums = model.get("enums", {})
         self.seeds = model.get("seed", {})
         self.people = people
+        # How much timesheet history to generate. The default clears the
+        # roadmap's 10,000-time-entry exit criterion at the default headcount;
+        # tests that are not about volume pass a smaller number so the suite
+        # stays fast.
+        self.weeks = max(1, weeks)
         self.random = random.Random(seed)
         self.rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
         self.errors: list[str] = []
@@ -425,6 +531,15 @@ class Firm:
             ("intake compliance", ("ConflictCheck", "DueDiligenceCheck",
                                    "ConsentRecord"), self.build_intake_compliance),
             ("matters", ("ProjectType", "Project"), self.build_matters),
+            # After matters, so on a profile with the CRM this adds delivery
+            # data to the projects won pitches created rather than duplicating
+            # them.
+            ("delivery", ("ProjectRole", "TimeCode", "WorkItemType",
+                          "ProjectPhaseDefinition", "ProjectPhase",
+                          "ProjectMember", "WorkItem", "WorkItemDependency",
+                          "Milestone", "Timesheet", "TimeEntry",
+                          "ResourceRequest", "RaidItem", "StatusReport"),
+             self.build_delivery),
             ("travel", ("TravelPolicy", "DestinationAdvisory", "PerDiemRate",
                         "TripRequest", "TripSegment", "TravelBooking",
                         "ExpenseReport", "ExpenseLine", "CardTransaction"),
@@ -461,12 +576,17 @@ class Firm:
         self.add("OrgUnit", {
             "code": "FIRM", "name": self.config.firm["name"], "unitType": "division",
             "legalEntity": self.config.firm["code"],
+            **self.optional("OrgUnit", isDeliveryUnit=False),
         })
         for dept in self.config.departments:
             self.add("OrgUnit", {
                 "code": dept["code"], "name": dept["name"], "unitType": dept["unitType"],
                 "parentOrgUnit": "FIRM", "legalEntity": self.config.firm["code"],
                 "defaultCostCenter": f"CC-{dept['code']}",
+                # Which units earn fees. A utilisation report divides by this;
+                # without it the number is the firm's billable headcount ratio.
+                **self.optional("OrgUnit", isDeliveryUnit=
+                                self.config.is_billable_department(dept["code"])),
             })
             self.add("CostCenter", {
                 "code": f"CC-{dept['code']}", "name": f"{dept['name']} cost centre",
@@ -1705,6 +1825,847 @@ class Firm:
                     billingPartner=self.random.choice(partners)["employeeNumber"],
                     clientMatterReference=f"{pitch['account']['code']}/{index:03d}"),
             })
+
+    # -- Work Management -----------------------------------------------------
+    def build_delivery(self) -> None:
+        """Projects, backlog, resourcing and the timesheets behind them.
+
+        This is the section the roadmap's Phase 3 exit criterion is about: more
+        than ten thousand time entries, consistent enough that a utilisation
+        report computed from them is worth reading. So the shape matters more
+        than the volume — a firm where everybody is exactly 75% utilised proves
+        nothing, and neither does one where the numbers are noise.
+
+        It runs after `build_matters`, so on a profile that has the CRM it
+        adds delivery data to the matters won pitches created, and on a
+        work-only profile it creates the projects itself.
+        """
+        people = [p for p in self.employees if p["_left"] is None]
+        if not people:
+            self.warnings.append("no active staff, so no delivery data")
+            return
+        work = self.config.work
+        if not work:
+            self.warnings.append(
+                f"{self.config.slug} has no 'work' section, so no delivery data")
+            return
+
+        currency = self.config.firm["currency"]
+        self._build_delivery_reference(work, currency)
+        projects = self._build_projects(work, people, currency)
+        if not projects:
+            self.warnings.append("no projects, so no delivery data")
+            return
+        self._build_phases(projects)
+        members = self._build_project_members(projects, people, currency)
+        if self.config.runs_sprints:
+            self._build_sprints(projects, work)
+        self._build_work_items(projects, members)
+        self._build_milestones(projects, currency)
+        self._build_timesheets(projects, members, people, currency)
+        # After the timesheets, because the actuals come from them.
+        self._roll_up_projects(projects)
+        self._build_resourcing(projects, people)
+        self._build_raid(projects, people, currency)
+        self._build_status_reports(projects)
+
+    def _build_delivery_reference(self, work: dict[str, Any],
+                                  currency: str) -> None:
+        """Roles, time codes, work item types and the phase definitions."""
+        for role in work["roles"]:
+            self.add("ProjectRole", {
+                "code": role["code"], "name": role["name"],
+                "defaultBillRate": float(role["billRate"]),
+                "defaultCostRate": float(role["costRate"]),
+                "currency": currency,
+                "description": f"{role['name']} on a client engagement.",
+            })
+        for item in work["timeCodes"]:
+            self.add("TimeCode", {
+                "code": item["code"], "name": item["name"],
+                "codeSet": self.config.firm["code"],
+                "isBillableDefault": bool(item["billable"]),
+                "description": f"{item['name']}, "
+                               f"{'chargeable' if item['billable'] else 'not chargeable'}"
+                               " to a client by default.",
+            })
+        for item in WORK_ITEM_MIX:
+            self.add("WorkItemType", {
+                "code": item["code"], "name": item["name"],
+                "category": item["category"],
+                # An epic or a feature holds children; a bug or a task does not.
+                "allowsChildren": item["category"] in ("epic", "feature"),
+                "description": f"{item['name']} on the backlog.",
+            })
+
+        # Phase definitions belong to a project type, so a new project of that
+        # type gets the right phases without anyone retyping them.
+        for project_type in work["projectTypes"]:
+            for sequence, phase in enumerate(project_type["phases"], start=1):
+                self.add("ProjectPhaseDefinition", {
+                    "code": f"{project_type['code']}-{sequence:02d}",
+                    "name": phase,
+                    "projectType": project_type["code"],
+                    "sequence": sequence,
+                    "defaultFeePercent": round(
+                        100.0 / len(project_type["phases"]), 2),
+                    "framework": project_type["name"],
+                })
+
+    def _build_projects(self, work: dict[str, Any], people: list[dict[str, Any]],
+                        currency: str) -> list[dict[str, Any]]:
+        """The projects, reusing any the CRM hand-off already created."""
+        existing_types = {row["code"] for row in self.rows.get("ProjectType", [])}
+        for project_type in work["projectTypes"]:
+            if project_type["code"] in existing_types:
+                continue
+            self.add("ProjectType", {
+                "code": project_type["code"], "name": project_type["name"],
+                "defaultBillingModel": project_type["model"],
+                "requiresClient": not project_type.get("internal"),
+                "isInternal": bool(project_type.get("internal")),
+                "numberPrefix": project_type["code"][:4],
+            })
+
+        projects = list(self.rows.get("Project", []))
+        if projects:
+            self.notes.append(
+                f"{len(projects)} project(s) came from won pitches; the delivery "
+                "data is built on top of them rather than replacing them")
+
+        managers = [p for p in people
+                    if self.config.is_billable_department(p["_dept"]["code"])] or people
+        clients = [a["code"] for a in self.rows.get("Account", [])]
+        client_types = [t for t in work["projectTypes"] if not t.get("internal")]
+        internal_types = [t for t in work["projectTypes"] if t.get("internal")]
+
+        # Enough client work that the delivery staff have something to charge
+        # to, and at least one project per billable person, which is what makes
+        # a resourcing view non-trivial.
+        billable = [p for p in people
+                    if self.config.is_billable_department(p["_dept"]["code"])]
+        wanted = max(8, round(len(billable) * 0.45))
+        start_index = len(projects)
+        for offset in range(max(0, wanted - len(projects))):
+            index = start_index + offset + 1
+            project_type = self.pick_weighted(
+                [{"t": t, "share": 1.0} for t in client_types or work["projectTypes"]]
+            )["t"]
+            manager = self.random.choice(managers)
+            started = self.date_between(TODAY - dt.timedelta(days=self.weeks * 7),
+                                        TODAY - dt.timedelta(days=21))
+            status = self.pick_weighted([
+                {"code": "active", "share": 0.58},
+                {"code": "completed", "share": 0.24},
+                {"code": "onHold", "share": 0.10},
+                {"code": "proposed", "share": 0.08}])["code"]
+            projects.append(self.add("Project", {
+                "code": f"PRJ-{index:05d}",
+                "name": f"{self._project_title(project_type, clients, index)}",
+                "projectType": project_type["code"],
+                "client": self.random.choice(clients) if clients else None,
+                "projectManager": manager["employeeNumber"],
+                "orgUnit": manager["_dept"]["code"],
+                "billingModel": project_type["model"],
+                "currency": currency,
+                "status": status,
+                "health": self.pick_weighted([
+                    {"code": "green", "share": 0.62},
+                    {"code": "amber", "share": 0.27},
+                    {"code": "red", "share": 0.11}])["code"],
+                "startDate": self.iso(started),
+                "targetEndDate": self.iso(started + dt.timedelta(
+                    days=self.random.choice([60, 90, 120, 180, 270]))),
+                "contractValue": float(self.random.randrange(40, 900) * 1000)
+                if not project_type.get("internal") else None,
+                "budgetHours": float(self.random.randrange(200, 4000)),
+                "priority": self.pick_weighted([
+                    {"code": "medium", "share": 0.52},
+                    {"code": "high", "share": 0.28},
+                    {"code": "low", "share": 0.14},
+                    {"code": "critical", "share": 0.06}])["code"],
+            }))
+
+        # One internal project per department — including the billable ones,
+        # because a fee earner's admin, training and business-development hours
+        # are not chargeable to a client either. Without this, overhead time
+        # would have to be logged against a client project, which is both
+        # untrue and the kind of thing that gets a firm in trouble.
+        if internal_types:
+            internal_type = internal_types[0]
+            for department in self.config.departments:
+                head = next((p for p in people
+                             if p["_dept"]["code"] == department["code"]), None)
+                if head is None:
+                    continue
+                projects.append(self.add("Project", {
+                    "code": f"INT-{department['code']}",
+                    "name": f"Internal — {department['name']}",
+                    "projectType": internal_type["code"],
+                    "projectManager": head["employeeNumber"],
+                    "orgUnit": department["code"],
+                    "billingModel": "nonBillable",
+                    "currency": currency,
+                    "status": "active",
+                    "health": "green",
+                    "startDate": self.iso(
+                        TODAY - dt.timedelta(days=self.weeks * 7)),
+                    "budgetHours": float(self.random.randrange(400, 2000)),
+                }))
+        return projects
+
+    def _project_title(self, project_type: dict[str, Any],
+                       clients: list[str], index: int) -> str:
+        account = next((a for a in self.rows.get("Account", [])
+                        if a["code"] in clients), None) if clients else None
+        if account:
+            account = self.random.choice(self.rows["Account"])
+            return f"{account['name']} — {project_type['name']}"
+        return f"{project_type['name']} {index:03d}"
+
+    def _build_phases(self, projects: list[dict[str, Any]]) -> None:
+        """The phases of each project, from its type's definitions."""
+        definitions: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for row in self.rows.get("ProjectPhaseDefinition", []):
+            definitions[row["projectType"]].append(row)
+
+        for project in projects:
+            phases = sorted(definitions.get(project["projectType"], []),
+                            key=lambda r: r["sequence"])
+            if not phases:
+                continue
+            # How far through the plan this project is. A completed project has
+            # finished every phase; an active one is partway.
+            if project["status"] in ("completed", "closed"):
+                reached = len(phases)
+            elif project["status"] == "proposed":
+                reached = 0
+            else:
+                reached = self.random.randint(1, len(phases))
+            started = dt.date.fromisoformat(project["startDate"])
+            span = max(14, ((dt.date.fromisoformat(project["targetEndDate"])
+                             - started).days if project.get("targetEndDate")
+                            else 120) // len(phases))
+            for position, phase in enumerate(phases):
+                phase_start = started + dt.timedelta(days=span * position)
+                if position < reached - 1:
+                    status = "completed"
+                elif position == reached - 1:
+                    status = ("completed" if reached == len(phases)
+                              and project["status"] in ("completed", "closed")
+                              else "inProgress")
+                else:
+                    status = "notStarted"
+                self.add("ProjectPhase", {
+                    "code": f"{project['code']}-P{phase['sequence']:02d}",
+                    "project": project["code"],
+                    "definition": phase["code"],
+                    "name": phase["name"],
+                    "sequence": phase["sequence"],
+                    "status": status,
+                    "startDate": self.iso(phase_start),
+                    "endDate": self.iso(phase_start + dt.timedelta(days=span)),
+                    "actualEndDate": self.iso(phase_start + dt.timedelta(
+                        days=span + self.random.randint(-5, 12)))
+                    if status == "completed" else None,
+                    "feePercent": phase["defaultFeePercent"],
+                    "budgetHours": round(
+                        (project.get("budgetHours") or 0) / len(phases), 1),
+                    "currency": project["currency"],
+                })
+
+    def _build_project_members(self, projects: list[dict[str, Any]],
+                               people: list[dict[str, Any]],
+                               currency: str) -> dict[str, list[dict[str, Any]]]:
+        """Who is on which project, with the rate they are charged at.
+
+        Returns project code -> the people on it, because every later section
+        needs it: a work item is assigned to somebody on the project, and time
+        is logged by somebody on the project.
+        """
+        roles = self.rows.get("ProjectRole", [])
+        by_project: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        # How much of each person is already committed. Drawing an allocation
+        # per membership independently put 23 of 54 people over 100%, which is
+        # not a firm, it is a spreadsheet nobody reconciled.
+        committed: dict[str, float] = defaultdict(float)
+        for project in projects:
+            internal = project["billingModel"] == "nonBillable"
+            if internal:
+                # Everyone in the department, not a sample: an internal project
+                # is where that department's overhead goes, so leaving somebody
+                # off it would leave them with nowhere to log a week at all —
+                # which showed up as fourteen staff logging no time.
+                team = [p for p in people
+                        if p["_dept"]["code"] == project["orgUnit"]]
+            else:
+                pool = [p for p in people
+                        if self.config.is_billable_department(
+                            p["_dept"]["code"])] or people
+                size = min(len(pool), self.random.randint(3, 7))
+                team = self.random.sample(pool, size)
+                # Roughly one client project in six carries somebody from a
+                # support function — a PMO running the plan, a finance analyst
+                # on a billing workstream. Without them every support
+                # department's utilisation reads exactly 0.0%, which looks
+                # like a column nobody populates rather than like a firm.
+                if self.random.random() < 0.17:
+                    support = [p for p in people
+                               if not self.config.is_billable_department(
+                                   p["_dept"]["code"])]
+                    if support:
+                        team.append(self.random.choice(support))
+            if not team:
+                continue
+            manager = next((p for p in people
+                            if p["employeeNumber"] == project["projectManager"]),
+                           None)
+            if manager and manager not in team:
+                team.append(manager)
+            started = dt.date.fromisoformat(project["startDate"])
+            for person in team:
+                role = self.random.choice(roles)
+                # The rate is the role's default, nudged by seniority. A rate
+                # card that ignores who is doing the work is not a rate card.
+                seniority = 1.0 + 0.05 * self.config.ladder.index(person["_rung"])
+                # What is left of this person, rounded to a share somebody
+                # would actually write down. A deliberate minority go over,
+                # because over-allocation is the thing the resourcing page
+                # exists to show.
+                remaining = 100.0 - committed[person["employeeNumber"]]
+                if self.random.random() < 0.06:
+                    allocation = float(self.random.choice([20, 25, 40, 50]))
+                else:
+                    options = [a for a in (10, 20, 25, 40, 50, 60, 80, 100)
+                               if a <= max(remaining, 10)]
+                    allocation = float(self.random.choice(options or [10]))
+                committed[person["employeeNumber"]] += allocation
+                member = self.add("ProjectMember", {
+                    "code": f"{project['code']}-{person['employeeNumber']}",
+                    "name": f"{person['displayName']} — {role['name']}",
+                    "project": project["code"],
+                    "employee": person["employeeNumber"],
+                    "role": role["code"],
+                    "allocationPercent": allocation,
+                    "startDate": self.iso(started),
+                    "billRate": None if internal else round(
+                        role["defaultBillRate"] * seniority, 2),
+                    "costRate": round(role["defaultCostRate"] * seniority, 2),
+                    "currency": currency,
+                })
+                member["_person"] = person
+                member["_role"] = role
+                by_project[project["code"]].append(member)
+        return by_project
+
+    def _build_sprints(self, projects: list[dict[str, Any]],
+                       work: dict[str, Any]) -> None:
+        """Iterations, for a firm that runs them."""
+        length = int(work.get("sprintLengthDays", 14))
+        for project in projects:
+            if project["status"] in ("proposed", "cancelled"):
+                continue
+            started = dt.date.fromisoformat(project["startDate"])
+            count = max(1, min(12, ((TODAY - started).days // length) + 1))
+            for number in range(1, count + 1):
+                sprint_start = started + dt.timedelta(days=length * (number - 1))
+                sprint_end = sprint_start + dt.timedelta(days=length - 1)
+                if sprint_end < TODAY:
+                    status = "completed"
+                elif sprint_start <= TODAY <= sprint_end:
+                    status = "active"
+                else:
+                    status = "planned"
+                self.add("Sprint", {
+                    "code": f"{project['code']}-S{number:02d}",
+                    "project": project["code"],
+                    "name": f"Sprint {number}",
+                    "goal": f"Sprint {number} of {project['name']}.",
+                    "startDate": self.iso(sprint_start),
+                    "endDate": self.iso(sprint_end),
+                    "status": status,
+                    "capacityHours": float(self.random.randrange(80, 400)),
+                })
+
+    def _build_work_items(self, projects: list[dict[str, Any]],
+                          members: dict[str, list[dict[str, Any]]]) -> None:
+        """The backlog, with a parent-child layer and real dependencies."""
+        phases: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for row in self.rows.get("ProjectPhase", []):
+            phases[row["project"]].append(row)
+        sprints: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for row in self.rows.get("Sprint", []):
+            sprints[row["project"]].append(row)
+
+        index = 0
+        for project in projects:
+            team = members.get(project["code"], [])
+            if not team:
+                continue
+            count = self.random.randint(8, 24)
+            parents: list[str] = []
+            created: list[dict[str, Any]] = []
+            for _ in range(count):
+                index += 1
+                item_type = self.pick_weighted(WORK_ITEM_MIX)
+                phase = (self.random.choice(phases[project["code"]])
+                         if phases.get(project["code"]) else None)
+                sprint = (self.random.choice(sprints[project["code"]])
+                          if sprints.get(project["code"]) else None)
+                assignee = self.random.choice(team)
+                status = self.pick_weighted([
+                    {"code": "done", "share": 0.42},
+                    {"code": "inProgress", "share": 0.16},
+                    {"code": "backlog", "share": 0.15},
+                    {"code": "toDo", "share": 0.13},
+                    {"code": "inReview", "share": 0.07},
+                    {"code": "blocked", "share": 0.04},
+                    {"code": "cancelled", "share": 0.03}])["code"]
+                estimate = float(self.random.choice([2, 4, 8, 13, 21, 34]))
+                due = self.date_between(
+                    dt.date.fromisoformat(project["startDate"]),
+                    TODAY + dt.timedelta(days=60))
+                code = f"WI-{index:06d}"
+                row = self.add("WorkItem", {
+                    "code": code,
+                    "title": f"{item_type['name']} {index}: "
+                             f"{self.random.choice(WORK_ITEM_SUBJECTS)}",
+                    "project": project["code"],
+                    "phase": phase["code"] if phase else None,
+                    "workItemType": item_type["code"],
+                    # Only an epic or a feature may hold children, which is
+                    # what allowsChildren on the type is for.
+                    "parentWorkItem": (self.random.choice(parents)
+                                       if parents and self.random.random() < 0.35
+                                       else None),
+                    "status": status,
+                    "priority": self.pick_weighted([
+                        {"code": "medium", "share": 0.5},
+                        {"code": "high", "share": 0.26},
+                        {"code": "low", "share": 0.17},
+                        {"code": "critical", "share": 0.07}])["code"],
+                    "assignedTo": assignee["employee"],
+                    "reporter": project["projectManager"],
+                    "sprint": sprint["code"] if sprint else None,
+                    "dueDate": self.iso(due),
+                    "completedOn": f"{self.iso(due)}T16:00:00Z"
+                    if status == "done" else None,
+                    "estimateHours": estimate,
+                    "remainingHours": 0.0 if status == "done" else round(
+                        estimate * self.random.uniform(0.1, 1.0), 1),
+                    "storyPoints": estimate if self.config.runs_sprints else None,
+                    "isBillable": project["billingModel"] != "nonBillable",
+                })
+                created.append(row)
+                if item_type["category"] in ("epic", "feature"):
+                    parents.append(code)
+
+            # A handful of real dependencies, so a scheduling view has
+            # something to draw. Always earlier-blocks-later, because a
+            # dependency pointing backwards in the list is a cycle waiting to
+            # be found by whoever renders it.
+            for position in range(1, len(created)):
+                if self.random.random() > 0.12:
+                    continue
+                predecessor = created[self.random.randrange(position)]
+                successor = created[position]
+                self.add("WorkItemDependency", {
+                    "code": f"{predecessor['code']}-{successor['code']}",
+                    "name": f"{predecessor['code']} blocks {successor['code']}",
+                    "predecessor": predecessor["code"],
+                    "successor": successor["code"],
+                    "dependencyType": self.pick_weighted([
+                        {"code": "finishToStart", "share": 0.74},
+                        {"code": "startToStart", "share": 0.14},
+                        {"code": "finishToFinish", "share": 0.09},
+                        {"code": "startToFinish", "share": 0.03}])["code"],
+                    "lagDays": self.random.choice([0, 0, 0, 1, 2, 5]),
+                })
+
+    def _build_milestones(self, projects: list[dict[str, Any]],
+                          currency: str) -> None:
+        """Milestones, and for a fixed-fee project the billing ones."""
+        phases: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for row in self.rows.get("ProjectPhase", []):
+            phases[row["project"]].append(row)
+
+        for project in projects:
+            billing = project["billingModel"] in ("fixedFee", "milestone",
+                                                  "cappedFee", "percentageOfValue")
+            value = project.get("contractValue") or 0.0
+            project_phases = sorted(phases.get(project["code"], []),
+                                    key=lambda r: r["sequence"])
+            for phase in project_phases:
+                due = dt.date.fromisoformat(phase["endDate"])
+                if phase["status"] == "completed":
+                    status = "achieved"
+                elif due < TODAY:
+                    status = self.pick_weighted([
+                        {"code": "missed", "share": 0.62},
+                        {"code": "achieved", "share": 0.38}])["code"]
+                else:
+                    status = "planned"
+                self.add("Milestone", {
+                    "code": f"{project['code']}-M{phase['sequence']:02d}",
+                    "project": project["code"],
+                    "phase": phase["code"],
+                    "name": f"{phase['name']} complete",
+                    "dueDate": self.iso(due),
+                    "completedOn": self.iso(due + dt.timedelta(
+                        days=self.random.randint(-4, 9)))
+                    if status == "achieved" else None,
+                    "status": status,
+                    "isBillingMilestone": billing,
+                    "billingAmount": round(
+                        value * (phase["feePercent"] / 100.0), 2)
+                    if billing and value else None,
+                    "currency": currency,
+                })
+
+    def _build_timesheets(self, projects: list[dict[str, Any]],
+                          members: dict[str, list[dict[str, Any]]],
+                          people: list[dict[str, Any]], currency: str) -> None:
+        """A week of time per person per week, and the entries inside it.
+
+        This is the volume. It is also the only section where the numbers have
+        to add up to something a report can be judged on, so the hours per week
+        follow the firm's utilisation target rather than being uniform noise.
+        """
+        codes = self.config.work["timeCodes"]
+        billable_codes = [c for c in codes if c["billable"]]
+        internal_codes = [c for c in codes if not c["billable"]]
+        weekly = float(self.config.work.get("weeklyHours", 37.5))
+        target = float(self.config.work.get("utilisationTarget", 0.75))
+
+        # Which projects each person can charge to, and at what rate.
+        for_person: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for team in members.values():
+            for member in team:
+                for_person[member["employee"]].append(member)
+        by_code = {p["code"]: p for p in projects}
+
+        week_start = TODAY - dt.timedelta(days=TODAY.weekday() + 7 * self.weeks)
+        sheet_index = 0
+        entry_index = 0
+        for person in people:
+            number = person["employeeNumber"]
+            assignments = for_person.get(number) or []
+            if not assignments:
+                continue
+            is_billable = self.config.is_billable_department(
+                person["_dept"]["code"])
+            joined = person.get("_joined")
+            for week in range(self.weeks):
+                start = week_start + dt.timedelta(days=7 * week)
+                end = start + dt.timedelta(days=4)
+                if joined and end < joined:
+                    continue
+                # Not every week is a full week: holiday, illness, a
+                # conference. A timesheet set with no gaps is not real.
+                if self.random.random() < 0.07:
+                    continue
+                sheet_index += 1
+                sheet_code = f"TS-{sheet_index:06d}"
+                if end < TODAY - dt.timedelta(days=14):
+                    sheet_status = self.pick_weighted([
+                        {"code": "approved", "share": 0.93},
+                        {"code": "rejected", "share": 0.07}])["code"]
+                elif end < TODAY:
+                    sheet_status = self.pick_weighted([
+                        {"code": "approved", "share": 0.55},
+                        {"code": "submitted", "share": 0.40},
+                        {"code": "open", "share": 0.05}])["code"]
+                else:
+                    sheet_status = "open"
+
+                entries = []
+                total = 0.0
+                billable_hours = 0.0
+                count = self.random.randint(*ENTRIES_PER_WEEK)
+                # The week's billable share varies around the firm's target,
+                # which is what gives the utilisation report a distribution
+                # rather than a single value.
+                share = (min(0.98, max(0.0, self.random.gauss(target, 0.14)))
+                         if is_billable else self.random.uniform(0.0, 0.15))
+                for position in range(count):
+                    entry_index += 1
+                    day = start + dt.timedelta(days=self.random.randint(0, 4))
+                    wants_billable = self.random.random() < share
+                    chargeable = [a for a in assignments
+                                  if by_code[a["project"]]["billingModel"]
+                                  != "nonBillable"]
+                    internal = [a for a in assignments
+                                if by_code[a["project"]]["billingModel"]
+                                == "nonBillable"]
+                    pool = (chargeable if wants_billable and chargeable
+                            else internal or assignments)
+                    member = self.random.choice(pool)
+                    project = by_code[member["project"]]
+                    billable = (project["billingModel"] != "nonBillable"
+                                and wants_billable)
+                    code = self.pick_weighted(
+                        billable_codes if billable else internal_codes or codes)
+                    hours = round(min(
+                        weekly / max(count, 1) * self.random.uniform(0.5, 1.6),
+                        12.0), 2)
+                    total += hours
+                    if billable:
+                        billable_hours += hours
+                    rate = member.get("billRate")
+                    entries.append({
+                        "code": f"{sheet_code}-L{position + 1}",
+                        "name": f"{code['name']} — {self.iso(day)}",
+                        "timesheet": sheet_code,
+                        "employee": number,
+                        "project": project["code"],
+                        "workItem": None,
+                        "timeCode": code["code"],
+                        "entryDate": self.iso(day),
+                        "hours": hours,
+                        "isBillable": billable,
+                        "narrative": f"{code['name']} on {project['name']}.",
+                        "status": self._entry_status(sheet_status, billable),
+                        "billRate": rate if billable else None,
+                        "billAmount": round(rate * hours, 2)
+                        if billable and rate else None,
+                        "currency": currency,
+                    })
+
+                self.add("Timesheet", {
+                    "code": sheet_code,
+                    "name": f"{person['displayName']} — week of {self.iso(start)}",
+                    "employee": number,
+                    "periodStart": self.iso(start),
+                    "periodEnd": self.iso(start + dt.timedelta(days=6)),
+                    "status": sheet_status,
+                    "totalHours": round(total, 2),
+                    "billableHours": round(billable_hours, 2),
+                    "submittedOn": f"{self.iso(start + dt.timedelta(days=7))}"
+                                   "T17:00:00Z"
+                    if sheet_status != "open" else None,
+                })
+                for entry in entries:
+                    self.add("TimeEntry", entry)
+
+        self.notes.append(
+            f"{len(self.rows['TimeEntry'])} time entries over "
+            f"{len(self.rows['Timesheet'])} weekly timesheets, "
+            f"{self.weeks} weeks of history")
+
+    def _entry_status(self, sheet_status: str, billable: bool) -> str:
+        """Where one line has got to, given the week it belongs to.
+
+        Write-offs matter: a firm that never writes anything off is a firm
+        whose fees are never challenged, and the write-off rate is one of the
+        two numbers a finance director reads first. The demo had none, so the
+        revenue page's write-off tiles read zero.
+        """
+        if sheet_status == "rejected":
+            return "rejected"
+        if sheet_status == "submitted":
+            return "submitted"
+        if sheet_status != "approved":
+            return "draft"
+        if not billable:
+            return "approved"
+        return self.pick_weighted([
+            {"code": "billed", "share": 0.70},
+            {"code": "approved", "share": 0.24},
+            {"code": "writtenOff", "share": 0.06}])["code"]
+
+    def _roll_up_projects(self, projects: list[dict[str, Any]]) -> None:
+        """Put the hours actually logged back onto the project.
+
+        Project carries actualHours, actualCost and percentComplete, and
+        leaving them empty while thirteen thousand time entries exist is the
+        kind of inconsistency a demo gets asked about in the first five
+        minutes. The budget is then set from the actuals, so "hours against
+        budget" lands in a band a delivery director would recognise instead of
+        reading 265% across the whole firm.
+        """
+        hours: dict[str, float] = defaultdict(float)
+        value: dict[str, float] = defaultdict(float)
+        for entry in self.rows.get("TimeEntry", []):
+            hours[entry["project"]] += entry["hours"]
+            value[entry["project"]] += entry.get("billAmount") or 0.0
+        phase_hours: dict[str, float] = defaultdict(float)
+        for entry in self.rows.get("TimeEntry", []):
+            if entry.get("phase"):
+                phase_hours[entry["phase"]] += entry["hours"]
+
+        over = 0
+        for project in projects:
+            logged = round(hours.get(project["code"], 0.0), 1)
+            project["actualHours"] = logged
+            project["actualCost"] = round(value.get(project["code"], 0.0), 2) or None
+            # Most projects are inside their budget; a minority are over, and
+            # a completed project is done rather than part-done.
+            if project["status"] in ("completed", "closed"):
+                project["percentComplete"] = 100.0
+            elif project["status"] == "proposed":
+                project["percentComplete"] = 0.0
+            else:
+                project["percentComplete"] = float(self.random.randrange(10, 95))
+            if logged:
+                # budget = logged / ratio, so a ratio above 1 means the budget
+                # is smaller than the hours spent: that project is over. Most
+                # are not — a firm where two projects in three overrun is a
+                # firm with a pricing problem, not demo data.
+                ratio = (self.random.uniform(1.02, 1.30)
+                         if self.random.random() < 0.3
+                         else self.random.uniform(0.70, 0.98))
+                project["budgetHours"] = round(logged / ratio, 1)
+                if ratio > 1:
+                    over += 1
+        if over:
+            self.notes.append(
+                f"{over} of {len(projects)} project(s) are over their budgeted "
+                "hours, so the delivery page is not uniformly green")
+
+    def _build_resourcing(self, projects: list[dict[str, Any]],
+                          people: list[dict[str, Any]]) -> None:
+        """Staffing requests, including ones nobody has filled."""
+        roles = self.rows.get("ProjectRole", [])
+        live = [p for p in projects if p["status"] in ("active", "proposed")]
+        index = 0
+        for project in live:
+            if self.random.random() > 0.55:
+                continue
+            index += 1
+            start = self.date_between(TODAY - dt.timedelta(days=30),
+                                      TODAY + dt.timedelta(days=60))
+            status = self.pick_weighted([
+                {"code": "filled", "share": 0.42},
+                {"code": "submitted", "share": 0.24},
+                {"code": "partiallyFilled", "share": 0.18},
+                {"code": "draft", "share": 0.10},
+                {"code": "cancelled", "share": 0.06}])["code"]
+            self.add("ResourceRequest", {
+                "code": f"RR-{index:05d}",
+                "name": f"{project['name']} — resourcing",
+                "project": project["code"],
+                "role": self.random.choice(roles)["code"],
+                "requestedBy": project["projectManager"],
+                "startDate": self.iso(start),
+                "endDate": self.iso(start + dt.timedelta(
+                    days=self.random.choice([30, 60, 90]))),
+                "hoursRequired": float(self.random.randrange(40, 600)),
+                "allocationPercent": float(self.random.choice([20, 40, 50, 80, 100])),
+                "priority": self.pick_weighted([
+                    {"code": "medium", "share": 0.5},
+                    {"code": "high", "share": 0.33},
+                    {"code": "low", "share": 0.11},
+                    {"code": "critical", "share": 0.06}])["code"],
+                "status": status,
+                "assignedEmployee": self.random.choice(people)["employeeNumber"]
+                if status in ("filled", "partiallyFilled") else None,
+                "notes": "Raised from the delivery plan.",
+            })
+        unfilled = [r for r in self.rows.get("ResourceRequest", [])
+                    if r["status"] in ("submitted", "partiallyFilled")]
+        if not unfilled and self.rows.get("ResourceRequest"):
+            self.rows["ResourceRequest"][0]["status"] = "submitted"
+            self.rows["ResourceRequest"][0]["assignedEmployee"] = None
+            self.notes.append(
+                "forced one resource request to stay unfilled, so the "
+                "resourcing gap on the dashboard is not zero")
+
+    def _build_raid(self, projects: list[dict[str, Any]],
+                    people: list[dict[str, Any]], currency: str) -> None:
+        """The RAID log — and the severity score it implies."""
+        index = 0
+        for project in projects:
+            if project["status"] in ("proposed", "cancelled"):
+                continue
+            for _ in range(self.random.randint(1, 5)):
+                index += 1
+                raid_type = self.pick_weighted([
+                    {"code": "risk", "share": 0.34},
+                    {"code": "issue", "share": 0.24},
+                    {"code": "decision", "share": 0.16},
+                    {"code": "dependency", "share": 0.12},
+                    {"code": "assumption", "share": 0.08},
+                    {"code": "changeRequest", "share": 0.06}])["code"]
+                probability = self.pick_weighted([
+                    {"code": "low", "share": 0.3}, {"code": "medium", "share": 0.4},
+                    {"code": "high", "share": 0.22},
+                    {"code": "veryHigh", "share": 0.08}])["code"]
+                impact = self.pick_weighted([
+                    {"code": "low", "share": 0.26}, {"code": "medium", "share": 0.38},
+                    {"code": "high", "share": 0.26},
+                    {"code": "veryHigh", "share": 0.10}])["code"]
+                raised = self.date_between(
+                    dt.date.fromisoformat(project["startDate"]), TODAY)
+                status = self.pick_weighted([
+                    {"code": "open", "share": 0.34},
+                    {"code": "closed", "share": 0.24},
+                    {"code": "inProgress", "share": 0.21},
+                    {"code": "resolved", "share": 0.13},
+                    {"code": "accepted", "share": 0.08}])["code"]
+                closed = status in ("closed", "resolved")
+                self.add("RaidItem", {
+                    "code": f"RAID-{index:05d}",
+                    "project": project["code"],
+                    "raidType": raid_type,
+                    "title": f"{raid_type.title()}: "
+                             f"{self.random.choice(RAID_SUBJECTS)}",
+                    "description": "Raised at the delivery review.",
+                    "assignedTo": self.random.choice(people)["employeeNumber"],
+                    "probability": probability,
+                    "impact": impact,
+                    # The score is probability x impact on the four-point
+                    # scale, so a filter on "score >= 9" means something.
+                    "severityScore": IMPACT_SCORE[probability] * IMPACT_SCORE[impact],
+                    "status": status,
+                    "raisedOn": self.iso(raised),
+                    "dueDate": self.iso(raised + dt.timedelta(
+                        days=self.random.choice([14, 30, 60]))),
+                    "closedOn": self.iso(raised + dt.timedelta(
+                        days=self.random.randint(3, 50))) if closed else None,
+                    "mitigation": "Mitigation agreed with the client.",
+                    "costImpact": float(self.random.randrange(2, 90) * 1000)
+                    if raid_type in ("risk", "issue", "changeRequest") else None,
+                    "scheduleImpactDays": self.random.choice([0, 2, 5, 10, 20])
+                    if raid_type in ("risk", "issue", "dependency") else None,
+                    "currency": currency,
+                    "decidedBy": project["projectManager"]
+                    if raid_type == "decision" else None,
+                })
+
+    def _build_status_reports(self, projects: list[dict[str, Any]]) -> None:
+        """A weekly report per live project, for the last few weeks."""
+        index = 0
+        for project in projects:
+            if project["status"] not in ("active", "onHold"):
+                continue
+            for weeks_ago in range(self.random.randint(1, 5)):
+                index += 1
+                period_end = TODAY - dt.timedelta(
+                    days=TODAY.weekday() + 7 * weeks_ago)
+                health = project.get("health") or "green"
+                self.add("StatusReport", {
+                    "code": f"SR-{index:05d}",
+                    "name": f"{project['name']} — {self.iso(period_end)}",
+                    "project": project["code"],
+                    "periodEnd": self.iso(period_end),
+                    "overallHealth": health,
+                    "scheduleHealth": self.pick_weighted([
+                        {"code": health, "share": 0.7},
+                        {"code": "amber", "share": 0.2},
+                        {"code": "green", "share": 0.1}])["code"],
+                    "budgetHealth": self.pick_weighted([
+                        {"code": health, "share": 0.7},
+                        {"code": "green", "share": 0.2},
+                        {"code": "red", "share": 0.1}])["code"],
+                    "scopeHealth": health,
+                    "percentComplete": float(self.random.randrange(5, 95)),
+                    "summary": f"Delivery continues on {project['name']}.",
+                    "accomplishments": "Phase work progressed as planned.",
+                    "nextSteps": "Continue the current phase.",
+                    "risksAndIssues": "See the RAID log.",
+                    "reportedBy": project["projectManager"],
+                    "publishedOn": f"{self.iso(period_end)}T18:00:00Z",
+                })
 
     # -- Travel --------------------------------------------------------------
     def build_travel(self) -> None:

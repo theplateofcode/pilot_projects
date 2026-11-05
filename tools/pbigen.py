@@ -73,6 +73,14 @@ SKIP_TYPES = set(SKIP_REASONS)
 # colour-vision and contrast gate under all-pairs comparison. A fourth puts
 # yellow beside orange, which does not.
 MAX_SERIES = 3
+# Visuals where a measure is a column of numbers rather than a coloured
+# series, so the limit above does not apply to them: nothing is identified by
+# colour in a table. Applying it anyway argued for splitting a perfectly
+# readable four-column table into two.
+NO_SERIES_COLOUR = {"table", "matrix", "statTile", "card", "kpi"}
+# A table still has a readability limit, it is just not a colour one: past
+# this many measures a row is wider than the eye tracks.
+MAX_TABLE_MEASURES = 6
 
 # Trait columns that are pure plumbing: hidden from the field list, though a
 # measure may still reference them. integration, classified and effectiveDated
@@ -364,7 +372,9 @@ class Builder:
 
         The column named after its target is the subject of the row —
         LeaveRequest.employee is whose leave it is, while coverBy is incidental —
-        so it outranks every other path to the same table.
+        so it outranks every other path to the same table. A required lookup
+        outranks an optional one for the same reason: Employee.orgUnit is where
+        somebody works, while OrgUnit.head is a pointer at one person.
         """
         score = 0
         if attr.lower() == target.lower():
@@ -375,26 +385,45 @@ class Builder:
             score += 10
         return score
 
+    @staticmethod
+    def _pair(rel: dict[str, Any]) -> frozenset[str]:
+        """The unordered pair of tables a relationship joins.
+
+        Unordered, because Power BI allows one active relationship between two
+        tables whichever way each one points. Keying on the ordered pair left
+        Employee -> OrgUnit and OrgUnit.head -> Employee both active, and a
+        model with two active paths between one pair of tables does not load:
+        every generated semantic model in this repo carried three or four of
+        them.
+        """
+        return frozenset((rel["fromTable"], rel["toTable"]))
+
     def _choose_active(self, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Only one active relationship may exist between a pair of tables."""
-        best: dict[tuple[str, str], dict[str, Any]] = {}
+        best: dict[frozenset[str], dict[str, Any]] = {}
         for rel in candidates:
             if not rel["isActive"]:
                 continue
-            pair = (rel["fromTable"], rel["toTable"])
+            pair = self._pair(rel)
             incumbent = best.get(pair)
-            if incumbent is None or rel["_priority"] > incumbent["_priority"]:
+            # The name is the last tiebreak so two equally-ranked paths resolve
+            # the same way on every run, rather than by the order the model
+            # happened to be walked in.
+            if incumbent is None or (rel["_priority"], incumbent["name"]) > (
+                    incumbent["_priority"], rel["name"]):
                 best[pair] = rel
 
         out = []
         for rel in candidates:
-            pair = (rel["fromTable"], rel["toTable"])
+            pair = self._pair(rel)
             if rel["isActive"] and best.get(pair) is not rel:
                 rel["isActive"] = False
+                winner = best[pair]
                 self.notes.append(
-                    f"{rel['name']}: inactive — {best[pair]['fromColumn']} is the active path "
-                    f"from {rel['fromTable']} to {rel['toTable']}; "
-                    "reach this one with USERELATIONSHIP"
+                    f"{rel['name']}: inactive — "
+                    f"{winner['fromTable']}[{winner['fromColumn']}] is the active "
+                    f"path between {' and '.join(sorted(pair))}; reach this one "
+                    "with USERELATIONSHIP"
                 )
             del rel["_priority"]
             out.append(rel)
@@ -511,7 +540,14 @@ class Builder:
                              list(visual.get("columns") or []):
                     self._check_field(where, field)
                 series = len(visual.get("measures") or [])
-                if series > MAX_SERIES:
+                if visual.get("type") in NO_SERIES_COLOUR:
+                    if series > MAX_TABLE_MEASURES:
+                        self.warnings.append(
+                            f"{where}: {series} measures in one "
+                            f"{visual.get('type')} — past {MAX_TABLE_MEASURES} a "
+                            "row is wider than the eye tracks; split it or drop a "
+                            "column")
+                elif series > MAX_SERIES:
                     self.warnings.append(
                         f"{where}: {series} series, but only the first {MAX_SERIES} theme "
                         "slots pass the colour-vision and contrast gates under all-pairs "

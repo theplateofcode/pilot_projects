@@ -257,6 +257,34 @@ class TestMatrix(unittest.TestCase):
         rs = secgen.RoleSet(spec, model({"Offer": entity(sensitivity="restricted")}), "wga")
         self.assertRegex(rs.matrix(), r"\| Offer \| restricted \| — \|")
 
+    def test_a_cell_with_two_depths_shows_both(self):
+        """A role that reads its unit but creates only its own rows rendered as
+        "CRUD (unit)" — a claim the role does not make. The matrix is what a
+        reviewer approves, so overstating a privilege in it is as bad as
+        granting one."""
+        spec = {"roles": [{"code": "m", "name": "M", "rules": [
+            {"tables": ["T"], "privileges": ["create", "delete"], "depth": "user"},
+            {"tables": ["T"], "privileges": ["read", "write"],
+             "depth": "businessUnit"}]}]}
+        rs = secgen.RoleSet(spec, model({"T": entity()}), "wga")
+        self.assertIn("| RU (unit) CD (own) |", rs.matrix())
+        self.assertNotIn("CRUD (unit)", rs.matrix())
+
+    def test_a_cell_at_one_depth_is_unchanged(self):
+        spec = {"roles": [{"code": "m", "name": "M", "rules": [
+            {"tables": ["T"], "privileges": ["create", "read", "write", "delete"],
+             "depth": "businessUnit"}]}]}
+        rs = secgen.RoleSet(spec, model({"T": entity()}), "wga")
+        self.assertIn("| CRUD (unit) |", rs.matrix())
+
+    def test_the_widest_group_is_listed_first(self):
+        spec = {"roles": [{"code": "m", "name": "M", "rules": [
+            {"tables": ["T"], "privileges": ["create"], "depth": "user"},
+            {"tables": ["T"], "privileges": ["read"], "depth": "organization"},
+            {"tables": ["T"], "privileges": ["write"], "depth": "businessUnit"}]}]}
+        rs = secgen.RoleSet(spec, model({"T": entity()}), "wga")
+        self.assertIn("| R (all) U (unit) C (own) |", rs.matrix())
+
     def test_out_of_scope_tables_are_left_out(self):
         spec = {"outOfScope": [{"table": "Account", "why": "Phase 2."}],
                 "roles": [{"code": "e", "name": "E", "rules": []}]}

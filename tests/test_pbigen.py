@@ -215,6 +215,75 @@ class TestRelationships(unittest.TestCase):
         self.assertFalse([r for r in b.relationships if r["toTable"] == "Grade"])
 
 
+class TestOnlyOneActivePathPerTablePair(unittest.TestCase):
+    """Power BI allows one active relationship between two tables, whichever
+    way each points. Keying on the ordered pair left Employee -> OrgUnit and
+    OrgUnit.head -> Employee both active, and every generated semantic model in
+    this repo carried three or four such pairs — models that do not load."""
+
+    MODEL = model({
+        "OrgUnit": entity({**BASE, "head": attr("lookup", target="Employee")}),
+        "CostCenter": entity({
+            **BASE,
+            "orgUnit": attr("lookup", target="OrgUnit"),
+            "budgetOwner": attr("lookup", target="Employee"),
+        }),
+        "Employee": entity({
+            **BASE,
+            "orgUnit": attr("lookup", target="OrgUnit", required=True),
+            "costCenter": attr("lookup", target="CostCenter"),
+        }),
+    })
+
+    def _rels(self):
+        return pbigen.Builder(
+            spec(tables=["OrgUnit", "CostCenter", "Employee"]), self.MODEL,
+            "wga").relationships
+
+    def test_no_table_pair_has_two_active_relationships(self):
+        active = [r for r in self._rels() if r["isActive"]]
+        pairs = [frozenset((r["fromTable"], r["toTable"])) for r in active]
+        duplicated = {p for p in pairs if pairs.count(p) > 1}
+        self.assertEqual(duplicated, set(),
+                         [r["name"] for r in active
+                          if frozenset((r["fromTable"], r["toTable"])) in duplicated])
+
+    def test_the_structural_lookup_wins_over_the_pointer_back(self):
+        """Employee.orgUnit is where somebody works; OrgUnit.head points at one
+        person. The membership path is the one a report filters down."""
+        by_name = {r["name"]: r for r in self._rels()}
+        self.assertTrue(by_name["Employee_orgUnit_OrgUnit"]["isActive"])
+        self.assertFalse(by_name["OrgUnit_head_Employee"]["isActive"])
+        self.assertTrue(by_name["Employee_costCenter_CostCenter"]["isActive"])
+        self.assertFalse(by_name["CostCenter_budgetOwner_Employee"]["isActive"])
+
+    def test_the_deactivated_one_is_noted_with_the_path_that_won(self):
+        builder = pbigen.Builder(
+            spec(tables=["OrgUnit", "CostCenter", "Employee"]), self.MODEL, "wga")
+        notes = " ".join(builder.notes)
+        self.assertIn("OrgUnit_head_Employee: inactive", notes)
+        self.assertIn("Employee[orgUnit] is the active path", notes)
+        self.assertIn("USERELATIONSHIP", notes)
+
+    def test_the_choice_does_not_depend_on_the_order_of_the_model(self):
+        """Two equally-ranked paths have to resolve the same way every run."""
+        forward = model({
+            "A": entity({**BASE, "b": attr("lookup", target="B")}),
+            "B": entity({**BASE, "a": attr("lookup", target="A")}),
+        })
+        backward = model({
+            "B": entity({**BASE, "a": attr("lookup", target="A")}),
+            "A": entity({**BASE, "b": attr("lookup", target="B")}),
+        })
+        chosen = []
+        for candidate in (forward, backward):
+            rels = pbigen.Builder(spec(tables=["A", "B"]), candidate,
+                                  "wga").relationships
+            chosen.append(sorted(r["name"] for r in rels if r["isActive"]))
+        self.assertEqual(chosen[0], chosen[1])
+        self.assertEqual(len(chosen[0]), 1)
+
+
 class TestDaxValidation(unittest.TestCase):
     MODEL = model({
         "Employee": entity(dict(BASE)),
@@ -636,13 +705,26 @@ class TestRealDashboard(unittest.TestCase):
                 self.b.columns[table]["id"]["sourceColumn"].endswith("id"), table)
 
     def test_exactly_one_active_path_between_any_pair_of_tables(self):
-        pairs = [(r["fromTable"], r["toTable"]) for r in self.b.relationships if r["isActive"]]
-        self.assertEqual(len(pairs), len(set(pairs)))
+        """Unordered, because Power BI does not care which way each points.
 
-    def test_no_visual_uses_more_than_three_series(self):
-        """Theme slots 1-3 are the ones validated under --pairs all."""
+        This test existed before the generator was fixed and keyed on the
+        ordered pair — the same mistake the generator made — so it passed over
+        three ambiguous pairs in this very model. A guard that encodes the bug
+        it is guarding against is worse than no guard, because it is read as
+        evidence.
+        """
+        pairs = [frozenset((r["fromTable"], r["toTable"]))
+                 for r in self.b.relationships if r["isActive"]]
+        duplicated = {p for p in pairs if pairs.count(p) > 1}
+        self.assertEqual(duplicated, set(), sorted(map(sorted, duplicated)))
+
+    def test_no_chart_uses_more_than_three_series(self):
+        """Theme slots 1-3 are the ones validated under --pairs all. A table is
+        exempt: its measures are columns of numbers, not coloured series."""
         for page in self.spec["pages"]:
             for visual in page["visuals"]:
+                if visual.get("type") in pbigen.NO_SERIES_COLOUR:
+                    continue
                 self.assertLessEqual(len(visual.get("measures") or []), 3,
                                      f"{page['name']}/{visual['title']}")
 
@@ -650,6 +732,58 @@ class TestRealDashboard(unittest.TestCase):
         for page in self.spec["pages"]:
             types = [v.get("type") for v in page["visuals"]]
             self.assertIn("statTile", types, page["name"])
+
+
+class TestEveryCommittedDashboard(unittest.TestCase):
+    """Every dashboard spec in powerbi/, against its own profile's model.
+
+    TestRealDashboard only ever loaded the HR one, which is how the ambiguous
+    relationships survived in four generated models: three of them were never
+    built by a test at all.
+    """
+
+    SPECS = (("hr-dashboard.yaml", "hr-starter", "wga"),
+             ("crm-dashboard.yaml", "law-firm-crm", "fab"),
+             ("travel-dashboard.yaml", "travel-starter", "nwd"),
+             ("work-dashboard.yaml", "work-starter", "ctw"))
+
+    def _builders(self):
+        for name, profile, prefix in self.SPECS:
+            spec_file = ROOT / "powerbi" / name
+            model_file = ROOT / "build" / f"{profile}.model.json"
+            if not spec_file.exists():
+                continue
+            if not model_file.exists():
+                self.skipTest(
+                    f"run: python tools/schematool.py export --profile {profile}")
+            yield name, pbigen.Builder(
+                yaml.safe_load(spec_file.read_text(encoding="utf-8")),
+                json.loads(model_file.read_text(encoding="utf-8")), prefix)
+
+    def test_every_spec_is_valid_against_its_model(self):
+        for name, builder in self._builders():
+            self.assertEqual(builder.errors, [], name)
+            self.assertEqual(builder.warnings, [], name)
+
+    def test_no_model_has_two_active_paths_between_one_table_pair(self):
+        for name, builder in self._builders():
+            pairs = [frozenset((r["fromTable"], r["toTable"]))
+                     for r in builder.relationships if r["isActive"]]
+            duplicated = {p for p in pairs if pairs.count(p) > 1}
+            self.assertEqual(duplicated, set(),
+                             f"{name}: {sorted(map(sorted, duplicated))}")
+
+    def test_every_measure_belongs_to_a_display_folder(self):
+        for name, builder in self._builders():
+            for measure in builder.measures:
+                self.assertTrue(measure["displayFolder"],
+                                f"{name}: {measure['name']}")
+
+    def test_every_page_has_a_stat_tile(self):
+        for name, builder in self._builders():
+            for page in builder.spec["pages"]:
+                types = [v.get("type") for v in page["visuals"]]
+                self.assertIn("statTile", types, f"{name}: {page['name']}")
 
 
 if __name__ == "__main__":

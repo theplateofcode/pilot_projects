@@ -266,3 +266,52 @@ onboarding:
 - name: 30-day review
   role: manager
   offsetDays: 30
+# Delivery configuration — Phase 3. A software company runs sprints, so this
+# firm's cadence is iterations rather than matter phases; the tables are the
+# same and only the cadence differs, which is the point of one work module
+# serving both.
+work:
+  cadence: sprints
+  sprintLengthDays: 14
+  weeklyHours: 40
+  # Target billable share for a delivery person. Customer Success and the
+  # implementation side of Engineering are billable; Product, Marketing,
+  # Finance and People are not, which is what makes the utilisation report
+  # worth looking at rather than uniformly green.
+  utilisationTarget: 0.72
+  billableDepartments: [CS, ENG]
+  projectTypes:
+  - code: IMPL
+    name: Customer implementation
+    model: timeAndMaterials
+    phases: [Discovery, Build, Migration, Go-live, Hypercare]
+  - code: PLAT
+    name: Platform workstream
+    model: nonBillable
+    internal: true
+    phases: [Design, Build, Harden, Release]
+  - code: INTEG
+    name: Integration project
+    model: fixedFee
+    phases: [Scoping, Build, Test, Handover]
+  - code: SUPP
+    name: Managed service
+    model: retainer
+    phases: [Onboarding, Steady state]
+  roles:
+  - { code: EM,   name: Engagement manager,   billRate: 215, costRate: 115 }
+  - { code: ARCH, name: Solution architect,   billRate: 245, costRate: 130 }
+  - { code: SENG, name: Senior engineer,      billRate: 185, costRate: 98 }
+  - { code: ENGR, name: Engineer,             billRate: 145, costRate: 72 }
+  - { code: QA,   name: Test engineer,        billRate: 125, costRate: 62 }
+  - { code: CSM,  name: Customer success,     billRate: 135, costRate: 70 }
+  timeCodes:
+  - { code: DEV,     name: Development,          billable: true,  share: 0.34 }
+  - { code: CONFIG,  name: Configuration,        billable: true,  share: 0.14 }
+  - { code: TEST,    name: Testing,              billable: true,  share: 0.12 }
+  - { code: MEET,    name: Client meetings,      billable: true,  share: 0.10 }
+  - { code: MIG,     name: Data migration,       billable: true,  share: 0.08 }
+  - { code: SUPPORT, name: Support and triage,   billable: true,  share: 0.07 }
+  - { code: INTERNAL, name: Internal project,    billable: false, share: 0.07 }
+  - { code: ADMIN,   name: Admin and overhead,   billable: false, share: 0.05 }
+  - { code: TRAIN,   name: Training,             billable: false, share: 0.03 }

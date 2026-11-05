@@ -6,7 +6,7 @@
 
 | Layer | Kind | Version | Depends on | Entities | Extended | Enums | Columns | Seed rows |
 |---|---|---|---|--:|--:|--:|--:|--:|
-| [Shared Core](core.md) `core` | foundation | 1.0.0 | — | 23 | 0 | 16 | 209 | 28 |
+| [Shared Core](core.md) `core` | foundation | 1.0.0 | — | 23 | 0 | 16 | 210 | 28 |
 | [CRM](crm.md) `crm` | module | 1.0.0 | core | 14 | 2 | 19 | 171 | 15 |
 | [HR](hr.md) `hr` | module | 1.0.0 | core | 33 | 0 | 36 | 356 | 39 |
 | [Intranet](intranet.md) `intranet` | module | 1.0.0 | core | 12 | 0 | 8 | 151 | 8 |
@@ -35,7 +35,7 @@
 | [Technology – CRM overlay](technology-crm.md) `technology-crm` | industry | 1.0.0 | crm | 1 | 1 | 1 | 16 | 8 |
 | [Technology – HR overlay](technology-hr.md) `technology-hr` | industry | 1.0.0 | hr | 0 | 0 | 0 | 0 | 16 |
 | [Technology – Product delivery overlay](technology-work.md) `technology-work` | industry | 1.0.0 | work | 2 | 2 | 5 | 25 | 24 |
-| **Total** | | | | **134** | **22** | **135** | **1588** | **342** |
+| **Total** | | | | **134** | **22** | **135** | **1589** | **342** |
 
 ## Dependency graph
 
