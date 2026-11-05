@@ -46,32 +46,6 @@ overlay layers instead of copies.
 
 **134 tables · ~1,600 columns · 135 choice sets · 19 term sets · 340+ reference-data rows · 10 deployment profiles**
 
-```mermaid
-flowchart BT
-    subgraph Industry["Industry overlays"]
-        arch["architecture-*"]
-        legal["legal-*"]
-        acct["accounting-*"]
-        tech["technology-*"]
-        ps["proserv-compliance"]
-    end
-    subgraph Bridges
-        b["crm-work · travel-work · hr-work · hr-intranet · intranet-work"]
-    end
-    subgraph Modules
-        travel["Travel Portal"]
-        work["Work Management"]
-        crm["CRM"]
-        intranet["Intranet"]
-        hr["HR"]
-    end
-    core["Shared Core"]
-    travel & work & crm & intranet & hr --> core
-    b --> Modules
-    Industry --> Modules
-    legal & acct --> ps
-```
-
 ## Repository layout
 
 ```
