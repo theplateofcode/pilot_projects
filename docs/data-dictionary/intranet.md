@@ -269,14 +269,14 @@ Controlled policy or procedure. The file lives in a SharePoint library with majo
 
 ### PolicyAttestation
 
-Evidence that a person read and accepted a specific version of a policy.
+Evidence that a person read and accepted a specific version of a policy. User-owned, like EventRegistration, because the row is one person's response to something: organization ownership makes "my attestations" inexpressible, so every role asking for own-row access gets the whole firm's instead — which is how every member of staff came to be able to read every colleague's compliance status.
 
 - **Display name:** Policy Attestation / Policy Attestations
-- **Ownership:** organization · **Volume:** high · **Sensitivity:** internal
+- **Ownership:** user · **Volume:** high · **Sensitivity:** internal
 - **Dataverse:** custom table `pfx_policyattestation` · **SharePoint:** list ⚠ high volume · **SQL:** table
 - **Primary column:** `name` (auto-generated)
 - **Alternate keys:** (`policy`, `employee`, `policyVersion`)
-- **Standard columns from traits:** `base` (id, createdOn, createdBy, modifiedOn, modifiedBy, stateCode, statusReason, rowVersion)
+- **Standard columns from traits:** `base` (id, createdOn, createdBy, modifiedOn, modifiedBy, stateCode, statusReason, rowVersion), `owned` (owner)
 
 | Column | Type | Req | Dataverse | SharePoint | SQL | Notes |
 |---|---|:-:|---|---|---|---|
@@ -388,7 +388,8 @@ Employee request to an internal service team.
 | `channel` | choice([RequestChannel](#requestchannel)) |  | Choice (global: RequestChannel) | Choice | int | _default `portal`_ |
 | `assignedTo` | lookup([Employee](core.md#employee)) |  | Lookup → Employee | Person | uniqueidentifier FK → Employee |  |
 | `office` | lookup([Office](core.md#office)) |  | Lookup → Office | Lookup → Office | uniqueidentifier FK → Office |  |
-| `dueOn` | datetime |  | Date and time (user local) | Date and time | datetime2 (UTC) |  |
+| `raisedOn` | datetime | ✔ | Date and time (user local) | Date and time | datetime2 (UTC) | When the requester raised it, which is not when the row was created. A ticket that arrives by email or phone is typed in by an agent, sometimes the next morning, so measuring a response target from createdOn measures the agent's typing rather than the firm's responsiveness. Every SLA measure starts here. |
+| `dueOn` | datetime |  | Date and time (user local) | Date and time | datetime2 (UTC) | When the response target expires: raisedOn plus the category's targetResponseHours. |
 | `firstRespondedOn` | datetime |  | Date and time (user local) | Date and time | datetime2 (UTC) |  |
 | `resolvedOn` | datetime |  | Date and time (user local) | Date and time | datetime2 (UTC) |  |
 | `resolution` | text |  | Multiline text | Multiple lines (plain) | nvarchar(max) |  |

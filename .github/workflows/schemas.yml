@@ -64,21 +64,29 @@ jobs:
           python tools/build.py --profile travel-starter --prefix nwd \
             --solution NorthwindTravel --firm northwind
 
+      # Phase 5, the intranet. The last of the five pilots, and the one whose
+      # reference data is mostly managed metadata rather than choice sets.
+      - name: Build Phase 5
+        run: |
+          python tools/build.py --profile intranet-starter --prefix adi \
+            --solution AdatumIntranet --firm adatum
+
       - name: Check the Dataverse plans apply
         run: |
           python tools/dvdeploy.py --plan build/dataverse/hr-starter --dry-run
           python tools/dvdeploy.py --plan build/dataverse/law-firm-crm --dry-run
           python tools/dvdeploy.py --plan build/dataverse/travel-starter --dry-run
           python tools/dvdeploy.py --plan build/dataverse/work-starter --dry-run
+          python tools/dvdeploy.py --plan build/dataverse/intranet-starter --dry-run
 
       # The approval engine serves every pilot, not only HR, so every starter
       # profile is built. secgen, appgen and pbigen are skipped where their spec
       # declares another profile, which build.py reports.
-      # travel-starter and work-starter are not here: each gets a full build
-      # of its own above.
+      # travel-starter, work-starter and intranet-starter are not here: each
+      # gets a full build of its own above.
       - name: Build every other starter profile
         run: |
-          for profile in crm-starter intranet-starter; do
+          for profile in crm-starter; do
             python tools/build.py --profile "$profile" --prefix pfx \
               --targets schema,dataverse,sql,sharepoint
           done

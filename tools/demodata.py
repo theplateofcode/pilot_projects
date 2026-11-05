@@ -84,6 +84,7 @@ class FirmConfig:
     holiday_calendar: dict[str, Any]
     onboarding: list[dict[str, Any]]
     work: dict[str, Any]
+    intranet: dict[str, Any]
 
     @property
     def name(self) -> str:
@@ -207,6 +208,40 @@ def load_firm(slug: str) -> FirmConfig:
                     f"{path.name}: work.roles[{index}] ({role['code']}) has a "
                     "cost rate at or above its bill rate")
 
+    intranet = raw.get("intranet") or {}
+    if intranet:
+        for index, category in enumerate(intranet.get("serviceCategories") or []):
+            for field_name in ("code", "name", "unit", "response", "resolve"):
+                if category.get(field_name) is None:
+                    raise DataError(
+                        f"{path.name}: intranet.serviceCategories[{index}] has "
+                        f"no '{field_name}'")
+            if category["unit"] not in set(codes):
+                raise DataError(
+                    f"{path.name}: intranet.serviceCategories[{index}] is owned "
+                    f"by {category['unit']}, which is not a department of this firm")
+            # A target resolution inside the target response is an SLA that is
+            # breached the moment it is set.
+            if int(category["resolve"]) <= int(category["response"]):
+                raise DataError(
+                    f"{path.name}: intranet.serviceCategories[{index}] "
+                    f"({category['code']}) resolves in {category['resolve']}h but "
+                    f"responds in {category['response']}h")
+        for index, policy in enumerate(intranet.get("policies") or []):
+            for field_name in ("number", "title", "category"):
+                if policy.get(field_name) is None:
+                    raise DataError(
+                        f"{path.name}: intranet.policies[{index}] has no "
+                        f"'{field_name}'")
+            if policy.get("attest") and not policy.get("days"):
+                raise DataError(
+                    f"{path.name}: intranet.policies[{index}] "
+                    f"({policy['number']}) requires attestation but gives no "
+                    "'days' to do it in")
+        numbers = [p["number"] for p in intranet.get("policies") or []]
+        if len(numbers) != len(set(numbers)):
+            raise DataError(f"{path.name}: duplicate intranet.policies numbers")
+
     return FirmConfig(
         slug=slug,
         profile=str(raw.get("profile", "")),
@@ -221,6 +256,7 @@ def load_firm(slug: str) -> FirmConfig:
         holiday_calendar=raw["holidayCalendar"],
         onboarding=raw["onboarding"],
         work=raw.get("work") or {},
+        intranet=raw.get("intranet") or {},
     )
 
 
@@ -348,6 +384,42 @@ DESTINATIONS = [
 RISK_RANK = {"low": 1, "medium": 2, "high": 3, "extreme": 4}
 
 # What a trip's expenses are made of, as a share of the claim.
+NEWS_SUBJECTS = [
+    "a new studio in the north", "our carbon reporting for the year",
+    "the summer intake arrives", "a planning consent on the riverside scheme",
+    "what the new building regulations change", "our best-of-year drawings",
+    "a conservation award shortlisting", "the mentoring scheme reopens",
+    "an update on the office refurbishment", "how we are measuring wellbeing",
+]
+EVENT_SUBJECTS = [
+    "quarterly all-hands", "Passivhaus detailing", "fire safety refresher",
+    "the autumn social", "client breakfast on retrofit",
+    "BIM coordination clinic", "mental health first aid",
+    "a lunchtime talk on timber", "volunteering at the community garden",
+]
+KB_SUBJECTS = [
+    "setting up a new project folder", "exporting a drawing set",
+    "requesting CAD licences", "booking a meeting room",
+    "claiming mileage", "the drawing numbering convention",
+    "how to raise a change request", "accessing the model from site",
+    "submitting a planning pack", "the template library",
+]
+SR_SUBJECTS = [
+    "licence will not activate", "plotter jammed again",
+    "cannot open the shared model", "new starter needs accounts",
+    "laptop running very slowly", "need access to a project folder",
+    "monitor flickering", "VPN drops on site", "password expired",
+    "desk phone not ringing", "request a second screen",
+]
+RECOGNITION_REASONS = [
+    "turning the planning pack round over a weekend",
+    "covering a site visit at no notice",
+    "patiently teaching the new starters the model standards",
+    "spotting the clash before it reached the contractor",
+    "keeping the client calm through a difficult week",
+    "rewriting the template library nobody else would touch",
+]
+
 # A four-point scale multiplied out, so a RAID severity score is probability
 # times impact rather than a number somebody invented.
 IMPACT_SCORE = {"low": 1, "medium": 2, "high": 3, "veryHigh": 4}
@@ -540,6 +612,11 @@ class Firm:
                           "Milestone", "Timesheet", "TimeEntry",
                           "ResourceRequest", "RaidItem", "StatusReport"),
              self.build_delivery),
+            ("intranet", ("Site", "QuickLink", "NewsArticle", "Announcement",
+                          "CompanyEvent", "EventRegistration", "PolicyDocument",
+                          "PolicyAttestation", "KnowledgeArticle",
+                          "ServiceCategory", "ServiceRequest", "Recognition"),
+             self.build_intranet),
             ("travel", ("TravelPolicy", "DestinationAdvisory", "PerDiemRate",
                         "TripRequest", "TripSegment", "TravelBooking",
                         "ExpenseReport", "ExpenseLine", "CardTransaction"),
@@ -1826,6 +1903,567 @@ class Firm:
                     clientMatterReference=f"{pitch['account']['code']}/{index:03d}"),
             })
 
+    # -- Intranet ------------------------------------------------------------
+    def build_intranet(self) -> None:
+        """Sites, news, events, policies, knowledge, the service desk.
+
+        Two things here are the pilot rather than decoration. **Audience
+        targeting** is what an intranet is judged on: every piece of content
+        carries audienceOrgUnits and audienceOffices, empty meaning everyone,
+        and a demo where everything is addressed to everyone demonstrates
+        nothing. **Policy attestation** is the other: the report has to show
+        people who have not signed, including some who are past their due date,
+        or there is nothing to chase.
+        """
+        people = [p for p in self.employees if p["_left"] is None]
+        if not people:
+            self.warnings.append("no active staff, so no intranet content")
+            return
+        config = self.config.intranet
+        if not config:
+            self.warnings.append(
+                f"{self.config.slug} has no 'intranet' section, so no intranet "
+                "content")
+            return
+
+        self._build_sites(config, people)
+        self._build_quick_links()
+        self._build_news(people)
+        self._build_announcements()
+        self._build_events(people)
+        self._build_policies(config, people)
+        self._build_knowledge(people)
+        self._build_service_desk(config, people)
+        self._build_recognition(people)
+
+    def _audience(self, everyone: float = 0.6) -> dict[str, Any]:
+        """Who a piece of content is for. Empty means everyone.
+
+        Most content is for everybody, which is why the default is 60% — but
+        the interesting cases are the targeted ones, and a demo with none of
+        them cannot show that audience targeting works at all.
+        """
+        if self.random.random() < everyone:
+            return {}
+        out: dict[str, Any] = {}
+        if self.random.random() < 0.7:
+            units = self.random.sample(
+                [d["code"] for d in self.config.departments],
+                self.random.randint(1, min(3, len(self.config.departments))))
+            out["audienceOrgUnits"] = units
+        if not out or self.random.random() < 0.4:
+            out["audienceOffices"] = self.random.sample(
+                [o["code"] for o in self.config.offices],
+                self.random.randint(1, len(self.config.offices)))
+        return out
+
+    def _build_sites(self, config: dict[str, Any],
+                     people: list[dict[str, Any]]) -> None:
+        """The site inventory, which is what site governance reports on."""
+        domain = config.get("domain", "contoso.sharepoint.example")
+        hub_name = config.get("hubName", f"{self.config.name} Hub")
+        owners = [p for p in people
+                  if p["_dept"]["code"] in {d["code"] for d in self.config.departments}]
+        hub = self.add("Site", {
+            "code": "SITE-HUB",
+            "name": hub_name,
+            "url": f"https://{domain}/sites/hub",
+            "siteType": "hub",
+            "primaryOwner": self.random.choice(owners)["employeeNumber"],
+            "secondaryOwner": self.random.choice(owners)["employeeNumber"],
+            "teamsEnabled": False,
+            "externalSharingEnabled": False,
+            "lastReviewedOn": self.iso(TODAY - dt.timedelta(days=40)),
+            "nextReviewDate": self.iso(TODAY + dt.timedelta(days=325)),
+            "description": "The front door. Every other site rolls up to it.",
+        })
+
+        index = 0
+        for department in self.config.departments:
+            index += 1
+            head = next((p for p in people
+                         if p["_dept"]["code"] == department["code"]), None)
+            if head is None:
+                continue
+            # A site nobody has reviewed for over a year is the finding a
+            # governance report exists to produce, so some are overdue.
+            reviewed = TODAY - dt.timedelta(days=self.random.choice(
+                [20, 60, 120, 200, 400, 500]))
+            self.add("Site", {
+                "code": f"SITE-{department['code']}",
+                "name": f"{department['name']}",
+                "url": f"https://{domain}/sites/{department['code'].lower()}",
+                "siteType": "team",
+                "hubSite": "SITE-HUB",
+                "primaryOwner": head["employeeNumber"],
+                "secondaryOwner": self.random.choice(owners)["employeeNumber"],
+                "orgUnit": department["code"],
+                "teamsEnabled": True,
+                "externalSharingEnabled": False,
+                "lastReviewedOn": self.iso(reviewed),
+                "nextReviewDate": self.iso(reviewed + dt.timedelta(days=365)),
+            })
+
+        for name in config.get("communities") or []:
+            index += 1
+            community_reviewed = TODAY - dt.timedelta(
+                days=self.random.choice([45, 90, 200, 395, 480]))
+            self.add("Site", {
+                "code": f"SITE-COM{index:02d}",
+                "name": name,
+                "url": f"https://{domain}/sites/"
+                       f"{re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')}",
+                "siteType": "community",
+                "hubSite": "SITE-HUB",
+                "primaryOwner": self.random.choice(owners)["employeeNumber"],
+                "teamsEnabled": True,
+                "externalSharingEnabled": False,
+                "lastReviewedOn": self.iso(community_reviewed),
+                # A community site with no review date at all is the row a
+                # governance report should flag hardest, so one is left
+                # without one on purpose.
+                "nextReviewDate": self.iso(
+                    community_reviewed + dt.timedelta(days=365))
+                if index % 3 else None,
+            })
+
+        # One client extranet with external sharing on, because that is the
+        # row a governance review has to look at first.
+        clients = [a["code"] for a in self.rows.get("Account", [])]
+        self.add("Site", {
+            "code": "SITE-EXT01",
+            "name": "Client collaboration",
+            "url": f"https://{domain}/sites/client-collab",
+            "siteType": "clientExtranet",
+            "hubSite": "SITE-HUB",
+            "primaryOwner": self.random.choice(owners)["employeeNumber"],
+            "client": self.random.choice(clients) if clients else None,
+            "teamsEnabled": True,
+            "externalSharingEnabled": True,
+            "lastReviewedOn": self.iso(TODAY - dt.timedelta(days=15)),
+            "nextReviewDate": self.iso(TODAY + dt.timedelta(days=75)),
+            "description": "External sharing is on. Reviewed quarterly.",
+        })
+        overdue = [s for s in self.rows["Site"]
+                   if s.get("nextReviewDate")
+                   and dt.date.fromisoformat(s["nextReviewDate"]) < TODAY]
+        unscheduled = [s for s in self.rows["Site"] if not s.get("nextReviewDate")]
+        self.notes.append(
+            f"{len(self.rows['Site'])} sites, {len(overdue)} past their review "
+            f"date and {len(unscheduled)} with no review date at all, plus one "
+            "client extranet with external sharing on")
+
+    def _build_quick_links(self) -> None:
+        links = [
+            ("Timesheets", "Apps", True), ("Expenses", "Finance", True),
+            ("Book leave", "HR", True), ("IT service desk", "IT", True),
+            ("Drawing register", "Apps", False), ("Document templates", "Knowledge", False),
+            ("Payslips", "HR", False), ("Room booking", "Apps", False),
+            ("BIM standards", "Knowledge", False), ("RIBA plan of work", "External", False),
+            ("Building regulations", "External", False), ("Password reset", "IT", False),
+        ]
+        for order, (title, category, pinned) in enumerate(links, start=1):
+            self.add("QuickLink", {
+                "code": f"LINK-{order:03d}",
+                "title": title,
+                "url": f"https://apps.{self.config.firm['domain']}/"
+                       f"{re.sub(r'[^a-z0-9]+', '-', title.lower()).strip('-')}",
+                "description": f"{title} for everyone at {self.config.name}.",
+                "category": category,
+                "sortOrder": order,
+                "openInNewTab": category == "External",
+                "isPinned": pinned,
+                **self._audience(everyone=0.75),
+            })
+
+    def _build_news(self, people: list[dict[str, Any]]) -> None:
+        categories = self.model["termSets"]["NewsCategory"]["terms"]
+        authors = [p for p in people
+                   if p["_dept"]["code"] in ("BUS", "PPL", "MKT", "OPS")] or people
+        for index in range(1, 46):
+            # Well over a year, so some published posts are stale — the clutter
+            # that makes an intranet search result useless is the thing the
+            # adoption page exists to count.
+            written = self.date_between(TODAY - dt.timedelta(days=620), TODAY)
+            status = self.pick_weighted([
+                {"code": "published", "share": 0.72},
+                {"code": "draft", "share": 0.12},
+                {"code": "inReview", "share": 0.08},
+                {"code": "archived", "share": 0.05},
+                {"code": "scheduled", "share": 0.03}])["code"]
+            if status == "scheduled":
+                written = TODAY + dt.timedelta(days=self.random.randint(2, 21))
+            category = self.random.choice(categories)
+            published = status in ("published", "archived")
+            self.add("NewsArticle", {
+                "code": f"NEWS-{index:04d}",
+                "title": f"{category}: {self.random.choice(NEWS_SUBJECTS)}",
+                "summary": f"{category} update for {self.config.name}.",
+                "body": f"<p>{category} update for {self.config.name}.</p>",
+                "category": category,
+                "writtenBy": self.random.choice(authors)["employeeNumber"],
+                "status": status,
+                "publishedOn": f"{self.iso(written)}T09:00:00Z"
+                if published or status == "scheduled" else None,
+                "expiresOn": f"{self.iso(written + dt.timedelta(days=365))}T09:00:00Z"
+                if status == "archived" else None,
+                "isFeatured": published and self.random.random() < 0.15,
+                # A view count only means something on something published.
+                "viewCount": self.random.randint(12, 950) if published else 0,
+                "pageUrl": f"https://{self.config.intranet.get('domain')}"
+                           f"/sites/hub/news/{index:04d}",
+                **self._audience(),
+            })
+        featured = [n for n in self.rows["NewsArticle"] if n["isFeatured"]]
+        if not featured:
+            published = [n for n in self.rows["NewsArticle"]
+                         if n["status"] == "published"]
+            if published:
+                published[0]["isFeatured"] = True
+                self.notes.append(
+                    "forced one news article to be featured, so the hub's hero "
+                    "web part has something to show")
+
+    def _build_announcements(self) -> None:
+        items = [
+            ("Studio closed for the bank holiday", "info", 0, 3),
+            ("Planned network maintenance on Saturday", "warning", -1, 2),
+            ("We have been shortlisted for a RIBA award", "success", -4, 10),
+            ("Phishing campaign in progress — do not click", "critical", 0, 1),
+            ("New BIM standards take effect next month", "info", -10, 25),
+        ]
+        for index, (title, severity, start_offset, days) in enumerate(items, start=1):
+            start = TODAY + dt.timedelta(days=start_offset)
+            self.add("Announcement", {
+                "code": f"ANN-{index:03d}",
+                "title": title,
+                "message": f"{title}. See the intranet for details.",
+                "severity": severity,
+                "startOn": f"{self.iso(start)}T07:00:00Z",
+                "endOn": f"{self.iso(start + dt.timedelta(days=days))}T19:00:00Z",
+                "isDismissible": severity != "critical",
+                **self._audience(everyone=0.8),
+            })
+
+    def _build_events(self, people: list[dict[str, Any]]) -> None:
+        types = self.model["termSets"]["EventType"]["terms"]
+        offices = [o["code"] for o in self.config.offices]
+        registration_index = 0
+        for index in range(1, 25):
+            event_type = self.random.choice(types)
+            start = self.date_between(TODAY - dt.timedelta(days=150),
+                                      TODAY + dt.timedelta(days=90))
+            past = start < TODAY
+            capacity = self.random.choice([12, 20, 30, 40, 60, 120])
+            needs_registration = self.random.random() < 0.7
+            status = ("archived" if past and self.random.random() < 0.3
+                      else "published")
+            event = self.add("CompanyEvent", {
+                "code": f"EVT-{index:04d}",
+                "title": f"{event_type}: {self.random.choice(EVENT_SUBJECTS)}",
+                "description": f"<p>{event_type} at {self.config.name}.</p>",
+                "eventType": event_type,
+                "startOn": f"{self.iso(start)}T09:30:00Z",
+                "endOn": f"{self.iso(start)}T12:30:00Z",
+                "isAllDay": False,
+                "timeZone": self.config.firm.get("timeZone", "Europe/London"),
+                "office": self.random.choice(offices),
+                "venue": "Studio" if self.random.random() < 0.6 else "Online",
+                "organizer": self.random.choice(people)["employeeNumber"],
+                "capacity": capacity,
+                "registrationRequired": needs_registration,
+                "registrationDeadline": f"{self.iso(start - dt.timedelta(days=2))}"
+                                        "T17:00:00Z" if needs_registration else None,
+                # An architecture practice counts CPD hours, and a training
+                # session that carries none is a training session nobody logs.
+                "cpdHours": float(self.random.choice([1.0, 1.5, 2.0, 3.0]))
+                if event_type in ("Training session", "Webinar", "Conference")
+                else None,
+                "status": status,
+                **self._audience(everyone=0.55),
+            })
+            if not needs_registration:
+                continue
+
+            # Deliberately oversubscribe some events, so the waitlist is real.
+            wanted = min(len(people),
+                         int(capacity * self.random.uniform(0.3, 1.4)))
+            for position, attendee in enumerate(
+                    self.random.sample(people, wanted), start=1):
+                registration_index += 1
+                registered = start - dt.timedelta(days=self.random.randint(3, 30))
+                # Position within *this* event. Using the running total made
+                # every registration after the first event a waitlisting: 453
+                # of 524, which is not an event, it is a queue.
+                over = position > capacity
+                if over:
+                    status_key = "waitlisted"
+                elif past:
+                    status_key = self.pick_weighted([
+                        {"code": "attended", "share": 0.74},
+                        {"code": "noShow", "share": 0.16},
+                        {"code": "cancelled", "share": 0.10}])["code"]
+                else:
+                    status_key = self.pick_weighted([
+                        {"code": "registered", "share": 0.92},
+                        {"code": "cancelled", "share": 0.08}])["code"]
+                self.add("EventRegistration", {
+                    "code": f"{event['code']}-R{position:05d}",
+                    "name": f"{attendee['displayName']} — {event['title']}",
+                    "event": event["code"],
+                    "attendee": attendee["employeeNumber"],
+                    "status": status_key,
+                    "registeredOn": f"{self.iso(max(registered, TODAY - dt.timedelta(days=360)))}T10:00:00Z",
+                    "checkedInOn": f"{self.iso(start)}T09:35:00Z"
+                    if status_key == "attended" else None,
+                    "dietaryRequirements": self.random.choice(
+                        ["Vegetarian", "Vegan", "Gluten free", None, None, None]),
+                })
+
+    def _build_policies(self, config: dict[str, Any],
+                        people: list[dict[str, Any]]) -> None:
+        """Policies, and the attestation record that is Phase 5's exit criterion."""
+        owners = [p for p in people if p["_dept"]["code"] in ("BUS", "PPL", "TEC")] \
+            or people
+        attestation_index = 0
+        for position, policy in enumerate(config.get("policies") or []):
+            requires = bool(policy.get("attest"))
+            due_days = int(policy.get("days") or 30)
+            # Every policy being long-standing made every unsigned attestation
+            # overdue, and an attestation report whose only state is "overdue"
+            # cannot show the difference between somebody who is late and
+            # somebody who simply has not got to it yet. A third are issued
+            # recently enough that their window is still open.
+            if requires and position % 3 == 1:
+                effective = TODAY - dt.timedelta(
+                    days=self.random.randint(1, max(1, due_days - 2)))
+            else:
+                effective = TODAY - dt.timedelta(days=self.random.randint(90, 400))
+            # Every fourth policy is overdue for review. A policy past its
+            # own review date is a policy nobody owns any more, and it is the
+            # finding the compliance page is for — left to chance it never
+            # appeared at all.
+            review = effective + dt.timedelta(
+                days=200 if position % 4 == 2 else 365)
+            row = self.add("PolicyDocument", {
+                "code": policy["number"],
+                "title": policy["title"],
+                "documentNumber": policy["number"],
+                "category": policy["category"],
+                "policyOwner": self.random.choice(owners)["employeeNumber"],
+                "approver": self.random.choice(owners)["employeeNumber"],
+                "legalEntity": self.config.firm["code"],
+                "versionLabel": f"{self.random.randint(1, 4)}.0",
+                "status": "published",
+                "effectiveDate": self.iso(effective),
+                "nextReviewDate": self.iso(review),
+                "summary": f"{policy['title']} for {self.config.name}.",
+                "requiresAttestation": requires,
+                "attestationDueDays": due_days if requires else None,
+                "documentUrl": f"https://{config.get('domain')}/sites/hub/policies/"
+                               f"{policy['number']}.pdf",
+            })
+            if not requires:
+                continue
+
+            # Everyone has to attest, and the report is only useful if some
+            # have not. The due date is the effective date plus the policy's
+            # own window, so "overdue" is a fact about the data rather than a
+            # status somebody typed.
+            due = effective + dt.timedelta(days=due_days)
+            for person in people:
+                attestation_index += 1
+                joined = person.get("_joined")
+                if joined and joined > due:
+                    continue           # joined after the window closed
+                roll = self.random.random()
+                if roll < 0.82:
+                    status = "completed"
+                elif roll < 0.95:
+                    status = "overdue" if due < TODAY else "pending"
+                else:
+                    status = "exempt"
+                attested = None
+                if status == "completed":
+                    attested = self.date_between(
+                        effective, min(due + dt.timedelta(days=5), TODAY))
+                self.add("PolicyAttestation", {
+                    "code": f"ATT-{attestation_index:06d}",
+                    "name": f"{person['displayName']} — {policy['number']}",
+                    "policy": policy["number"],
+                    "employee": person["employeeNumber"],
+                    "policyVersion": row["versionLabel"],
+                    "status": status,
+                    "dueDate": self.iso(due),
+                    "attestedOn": f"{self.iso(attested)}T11:00:00Z"
+                    if attested else None,
+                    "method": self.pick_weighted([
+                        {"code": "clickThrough", "share": 0.74},
+                        {"code": "eSignature", "share": 0.18},
+                        {"code": "trainingCompletion", "share": 0.08}])["code"]
+                    if status == "completed" else None,
+                })
+        outstanding = [a for a in self.rows.get("PolicyAttestation", [])
+                       if a["status"] in ("pending", "overdue")]
+        overdue = [a for a in outstanding if a["status"] == "overdue"]
+        self.notes.append(
+            f"{len(self.rows.get('PolicyAttestation', []))} attestation(s), "
+            f"{len(outstanding)} outstanding of which {len(overdue)} overdue, "
+            "so the attestation report has something to chase")
+
+    def _build_knowledge(self, people: list[dict[str, Any]]) -> None:
+        categories = self.model["termSets"]["KnowledgeCategory"]["terms"]
+        for index in range(1, 37):
+            category = self.random.choice(categories)
+            published = self.date_between(TODAY - dt.timedelta(days=500), TODAY)
+            status = self.pick_weighted([
+                {"code": "published", "share": 0.84},
+                {"code": "draft", "share": 0.10},
+                {"code": "archived", "share": 0.06}])["code"]
+            helpful_yes = self.random.randint(0, 60)
+            self.add("KnowledgeArticle", {
+                "code": f"KB-{index:04d}",
+                "title": f"{category}: {self.random.choice(KB_SUBJECTS)}",
+                "summary": f"{category} guidance.",
+                "body": f"<p>{category} guidance for {self.config.name}.</p>",
+                "category": category,
+                "articleOwner": self.random.choice(people)["employeeNumber"],
+                "status": status,
+                "publishedOn": f"{self.iso(published)}T09:00:00Z"
+                if status != "draft" else None,
+                # Some are overdue for review, which is the number that tells a
+                # knowledge base from a graveyard.
+                "nextReviewDate": self.iso(published + dt.timedelta(
+                    days=self.random.choice([180, 365, 365, 540]))),
+                "helpfulYes": helpful_yes,
+                "helpfulNo": self.random.randint(0, max(1, helpful_yes // 4)),
+            })
+        stale = [k for k in self.rows["KnowledgeArticle"]
+                 if dt.date.fromisoformat(k["nextReviewDate"]) < TODAY]
+        self.notes.append(
+            f"{len(stale)} of {len(self.rows['KnowledgeArticle'])} knowledge "
+            "article(s) are past their review date")
+
+    def _build_service_desk(self, config: dict[str, Any],
+                            people: list[dict[str, Any]]) -> None:
+        """The service desk, with SLA targets it sometimes misses."""
+        categories = config.get("serviceCategories") or []
+        if not categories:
+            return
+        for category in categories:
+            assignees = [p for p in people
+                         if p["_dept"]["code"] == category["unit"]] or people
+            self.add("ServiceCategory", {
+                "code": category["code"],
+                "name": category["name"],
+                "owningOrgUnit": category["unit"],
+                "defaultAssignee": self.random.choice(assignees)["employeeNumber"],
+                "targetResponseHours": int(category["response"]),
+                "targetResolutionHours": int(category["resolve"]),
+                "requiresApproval": category["code"] in ("IT_ACCESS", "IT_HW"),
+                "description": f"{category['name']} requests.",
+            })
+
+        offices = [o["code"] for o in self.config.offices]
+        for index in range(1, 221):
+            category = self.random.choice(categories)
+            assignees = [p for p in people
+                         if p["_dept"]["code"] == category["unit"]] or people
+            requester = self.random.choice(people)
+            raised = (self.date_between(TODAY - dt.timedelta(days=180), TODAY)
+                      .isoformat() + "T"
+                      f"{self.random.randint(8, 17):02d}:"
+                      f"{self.random.choice(['05', '17', '23', '41', '58'])}:00")
+            raised_at = dt.datetime.fromisoformat(raised)
+            priority = self.pick_weighted([
+                {"code": "medium", "share": 0.52},
+                {"code": "low", "share": 0.24},
+                {"code": "high", "share": 0.19},
+                {"code": "critical", "share": 0.05}])["code"]
+            status = self.pick_weighted([
+                {"code": "closed", "share": 0.52},
+                {"code": "resolved", "share": 0.16},
+                {"code": "inProgress", "share": 0.12},
+                {"code": "assigned", "share": 0.09},
+                {"code": "new", "share": 0.06},
+                {"code": "waitingOnRequester", "share": 0.04},
+                {"code": "cancelled", "share": 0.01}])["code"]
+            settled = status in ("resolved", "closed")
+            responded = status != "new"
+            # One request in six misses its response target and one in five
+            # its resolution target: an SLA nothing ever breaches is an SLA
+            # nobody set.
+            response_hours = (int(category["response"])
+                              * (self.random.uniform(1.1, 3.0)
+                                 if self.random.random() < 0.17
+                                 else self.random.uniform(0.1, 0.9)))
+            resolve_hours = (int(category["resolve"])
+                             * (self.random.uniform(1.05, 2.4)
+                                if self.random.random() < 0.2
+                                else self.random.uniform(0.15, 0.95)))
+            first_response = raised_at + dt.timedelta(hours=response_hours)
+            resolved_on = raised_at + dt.timedelta(hours=resolve_hours)
+            self.add("ServiceRequest", {
+                "code": f"SR-{index:05d}",
+                "title": f"{category['name']}: {self.random.choice(SR_SUBJECTS)}",
+                "requester": requester["employeeNumber"],
+                "category": category["code"],
+                "description": f"{category['name']} request raised by "
+                               f"{requester['displayName']}.",
+                "priority": priority,
+                "status": status,
+                "channel": self.pick_weighted([
+                    {"code": "portal", "share": 0.44},
+                    {"code": "teams", "share": 0.26},
+                    {"code": "email", "share": 0.14},
+                    {"code": "walkUp", "share": 0.08},
+                    {"code": "phone", "share": 0.05},
+                    {"code": "virtualAgent", "share": 0.03}])["code"],
+                "assignedTo": self.random.choice(assignees)["employeeNumber"]
+                if status != "new" else None,
+                "office": self.random.choice(offices),
+                # raisedOn is when the requester asked, not when the row was
+                # created: a ticket phoned in is typed up later, sometimes the
+                # next morning, and measuring a response target from createdOn
+                # measures the agent's typing. Every SLA measure starts here.
+                "raisedOn": f"{raised}Z",
+                "dueOn": (raised_at + dt.timedelta(
+                    hours=int(category["response"]))).isoformat() + "Z",
+                "firstRespondedOn": f"{first_response.isoformat()}Z"
+                if responded else None,
+                "resolvedOn": f"{resolved_on.isoformat()}Z" if settled else None,
+                "resolution": "Resolved and confirmed with the requester."
+                if settled else None,
+                "satisfactionScore": self.pick_weighted([
+                    {"code": 5, "share": 0.46}, {"code": 4, "share": 0.31},
+                    {"code": 3, "share": 0.13}, {"code": 2, "share": 0.06},
+                    {"code": 1, "share": 0.04}])["code"]
+                if status == "closed" and self.random.random() < 0.6 else None,
+            })
+
+    def _build_recognition(self, people: list[dict[str, Any]]) -> None:
+        values = self.model["termSets"]["CompanyValue"]["terms"]
+        for index in range(1, 61):
+            giver = self.random.choice(people)
+            others = [p for p in people if p is not giver]
+            if not others:
+                continue
+            recipients = self.random.sample(
+                others, self.random.randint(1, min(3, len(others))))
+            self.add("Recognition", {
+                "code": f"REC-{index:04d}",
+                "name": f"{giver['displayName']} thanked "
+                        f"{recipients[0]['displayName']}"
+                        + (f" and {len(recipients) - 1} other(s)"
+                           if len(recipients) > 1 else ""),
+                "givenBy": giver["employeeNumber"],
+                "recipients": [p["employeeNumber"] for p in recipients],
+                "message": f"Thank you for {self.random.choice(RECOGNITION_REASONS)}.",
+                "companyValue": self.random.choice(values),
+                "postedOn": f"{self.iso(self.date_between(TODAY - dt.timedelta(days=200), TODAY))}T15:00:00Z",
+                "isPublic": self.random.random() < 0.88,
+            })
+
     # -- Work Management -----------------------------------------------------
     def build_delivery(self) -> None:
         """Projects, backlog, resourcing and the timesheets behind them.
@@ -3076,6 +3714,10 @@ class Validator:
                 self._check_lookup(where, field, value, spec)
             elif kind == "polylookup":
                 self._check_polylookup(where, field, value, spec)
+            elif kind in ("multilookup", "multiterm"):
+                self._check_multilookup(where, field, value, spec)
+            elif kind == "term":
+                self._check_term(where, field, value, spec)
 
         for field, spec in attributes.items():
             if spec.get("trait") in ("base", "owned") or spec["type"] == "guid":
@@ -3125,6 +3767,86 @@ class Validator:
             return
         if str(value) not in available:
             self.errors.append(f"{where}: {field} = '{value}' is not a {target} that exists")
+
+    def _term_values(self, term_set: str) -> tuple[set[str], bool]:
+        """Every term in a set, and whether the set accepts new ones."""
+        spec = (self.model.get("termSets") or {}).get(term_set)
+        if spec is None:
+            return set(), True
+        found: set[str] = set()
+
+        def walk(items) -> None:
+            for item in items or ():
+                if isinstance(item, dict):
+                    found.add(str(item.get("name") or item.get("code") or ""))
+                    walk(item.get("children"))
+                else:
+                    found.add(str(item))
+
+        walk(spec.get("terms"))
+        return found - {""}, bool(spec.get("open"))
+
+    def _check_term(self, where: str, field: str, value: Any,
+                    spec: dict[str, Any]) -> None:
+        """A single managed-metadata value.
+
+        Unchecked until the intranet was built, which is the first module where
+        most reference data is a term rather than a choice set.
+        """
+        term_set = spec.get("termSet")
+        if not term_set:
+            return
+        available, is_open = self._term_values(term_set)
+        if not available or is_open:
+            return                      # an open set accepts anything
+        if str(value) not in available:
+            self.errors.append(
+                f"{where}: {field} = '{value}' is not a term of {term_set}")
+
+    def _check_multilookup(self, where: str, field: str, value: Any,
+                           spec: dict[str, Any]) -> None:
+        """A list of references, each of which has to resolve.
+
+        Nothing checked these until the intranet was built, and the intranet's
+        headline feature is audience targeting — which is carried entirely by
+        multilookup columns. A dangling audience is worse than an empty one: it
+        silently narrows who sees a policy, and the policy still looks
+        published.
+        """
+        if not isinstance(value, (list, tuple)):
+            self.errors.append(
+                f"{where}: {field} is a multi-value column and must be a list, "
+                f"not {type(value).__name__}")
+            return
+        if len(set(map(str, value))) != len(value):
+            self.errors.append(f"{where}: {field} repeats a value")
+        if spec["type"] == "multiterm":
+            term_set = spec.get("termSet")
+            if not term_set:
+                return
+            available, is_open = self._term_values(term_set)
+            if not available or is_open:
+                return
+            for item in value:
+                if str(item) not in available:
+                    self.errors.append(
+                        f"{where}: {field} includes '{item}', which is not a "
+                        f"term of {term_set}")
+            return
+        target = spec.get("target")
+        if not target:
+            return
+        available = self.keys.get(target, set())
+        if not available:
+            self.warnings.append(
+                f"{where}: {field} points at {target}, which has no rows — "
+                "load its reference data first")
+            return
+        for item in value:
+            if str(item) not in available:
+                self.errors.append(
+                    f"{where}: {field} includes '{item}', which is not a "
+                    f"{target} that exists")
 
     def _check_polylookup(self, where: str, field: str, value: Any,
                           spec: dict[str, Any]) -> None:

@@ -64,23 +64,54 @@ class TestSpecSkipping(unittest.TestCase):
                                (ROOT / "apps" / "hr-admin.yaml", "hr-starter"),
                                (ROOT / "security" / "travel-roles.yaml", "travel-starter"),
                                (ROOT / "powerbi" / "travel-dashboard.yaml", "travel-starter"),
-                               (ROOT / "apps" / "travel-desk.yaml", "travel-starter")):
+                               (ROOT / "apps" / "travel-desk.yaml", "travel-starter"),
+                               (ROOT / "security" / "work-roles.yaml", "work-starter"),
+                               (ROOT / "powerbi" / "work-dashboard.yaml", "work-starter"),
+                               (ROOT / "apps" / "project-delivery.yaml", "work-starter"),
+                               (ROOT / "security" / "intranet-roles.yaml", "intranet-starter"),
+                               (ROOT / "powerbi" / "intranet-dashboard.yaml", "intranet-starter"),
+                               (ROOT / "apps" / "intranet-admin.yaml", "intranet-starter")):
             if path.exists():
                 self.assertEqual(build.spec_profile(path), expected, path.name)
 
     def test_a_step_with_no_spec_for_this_profile_is_skipped(self):
-        """The intranet pilot has no roles file of its own, so secgen has
-        nothing to run — and says which profile it found nothing for."""
-        step = next(s for s in build.plan_steps("intranet-starter", "pfx", "S", None)
+        """A profile with no roles file gives secgen nothing to run, and the
+        skip says which profile it found nothing for.
+
+        The profile is one SPECS does not map rather than a named pilot: this
+        test used to name the next pilot due to be built, so it failed the day
+        that pilot got its roles file — which is a test about the build driver
+        breaking because the project made progress.
+        """
+        unmapped = next(
+            (p for p in ("crm-starter", "general-firm", "accounting-firm")
+             if p not in build.SPECS["security"]), None)
+        self.assertIsNotNone(unmapped, "every profile now has a roles spec; "
+                                       "point this test at a new one")
+        step = next(s for s in build.plan_steps(unmapped, "pfx", "S", None)
                     if s.name == "secgen")
-        reason = build.skip_reason(step, "intranet-starter")
+        reason = build.skip_reason(step, unmapped)
         self.assertIsNotNone(reason)
-        self.assertIn("intranet-starter", reason)
+        self.assertIn(unmapped, reason)
+
+    def test_every_mapped_profile_runs_its_own_specs(self):
+        """The other half: a profile SPECS maps must not be skipped, and must
+        get its own file rather than another phase's."""
+        for kind, step_name in (("security", "secgen"), ("apps", "appgen"),
+                                ("powerbi", "pbigen")):
+            for profile, filename in build.SPECS[kind].items():
+                step = next(s for s in build.plan_steps(profile, "pfx", "S", None)
+                            if s.name == step_name)
+                self.assertIsNone(build.skip_reason(step, profile),
+                                  f"{profile}/{step_name}")
+                self.assertEqual(step.spec.name, filename, f"{profile}/{kind}")
 
     def test_each_profile_with_a_spec_gets_its_own(self):
         for profile, expected in (("hr-starter", "phase1-roles.yaml"),
                                   ("law-firm-crm", "crm-roles.yaml"),
-                                  ("travel-starter", "travel-roles.yaml")):
+                                  ("travel-starter", "travel-roles.yaml"),
+                                  ("work-starter", "work-roles.yaml"),
+                                  ("intranet-starter", "intranet-roles.yaml")):
             step = next(s for s in build.plan_steps(profile, "wga", "S", None)
                         if s.name == "secgen")
             self.assertIsNotNone(step.spec, profile)

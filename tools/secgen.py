@@ -184,38 +184,62 @@ class RoleSet:
                 )
 
     def _resolve_inheritance(self) -> None:
-        """A role that inherits another starts from its grants, then widens."""
-        for code, role in self.roles.items():
+        """A role that inherits another starts from its grants, then widens.
+
+        Transitively: a role inheriting a role that itself inherits gets the
+        whole chain. Merging only the immediate parent's *own* grants silently
+        dropped the grandparent's — the intranet's Communications Editor
+        inherited Site Owner, which inherits Reader, and came out with ten
+        tables instead of thirty-two, unable to read the staff directory it is
+        written to publish about.
+        """
+        resolved: dict[str, dict[str, dict[str, str]]] = {}
+
+        def resolve(code: str, seen: tuple[str, ...]) -> dict[str, dict[str, str]]:
+            if code in resolved:
+                return resolved[code]
+            role = self.roles[code]
             parent_code = role["inherits"]
-            if not parent_code:
-                continue
-            parent = self.roles.get(parent_code)
-            if parent is None:
-                self.errors.append(f"{code}: inherits unknown role '{parent_code}'")
-                continue
-            merged: dict[str, dict[str, str]] = {}
-            for table, privileges in parent["grants"].items():
-                merged[table] = dict(privileges)
+            inherited: dict[str, dict[str, str]] = {}
+            if parent_code:
+                if parent_code not in self.roles:
+                    self.errors.append(
+                        f"{code}: inherits unknown role '{parent_code}'")
+                elif parent_code in seen:
+                    self.errors.append(
+                        f"{code}: inheritance is circular "
+                        f"({' -> '.join(seen + (code, parent_code))})")
+                else:
+                    inherited = {
+                        table: dict(privileges) for table, privileges
+                        in resolve(parent_code, seen + (code,)).items()
+                    }
+
+            merged = inherited
             for table, privileges in role["grants"].items():
                 target = merged.setdefault(table, {})
                 for privilege, depth in privileges.items():
                     current = target.get(privilege)
-                    if current is None or DEPTH_ORDER.index(depth) > DEPTH_ORDER.index(current):
+                    if current is None or DEPTH_ORDER.index(depth) > \
+                            DEPTH_ORDER.index(current):
                         target[privilege] = depth
-            # An explicit denial in the child removes what the parent granted
-            # beyond the child's own scope, but keeps the parent's own-row access.
+
+            # An explicit denial in the child removes what it inherited beyond
+            # the child's own scope, but keeps the inherited own-row access.
             for table in role["denied"]:
-                if table in merged and table in parent["grants"]:
-                    merged[table] = dict(parent["grants"][table])
+                if table in merged and table in inherited:
+                    merged[table] = dict(inherited[table])
                     self.notes.append(
                         f"{code}: denies {table} beyond what {parent_code} already grants "
                         f"({', '.join(f'{p} at {d}' for p, d in merged[table].items())})"
                     )
                 elif table in merged:
                     del merged[table]
-            role["effectiveGrants"] = merged
-        for role in self.roles.values():
-            role.setdefault("effectiveGrants", dict(role["grants"]))
+            resolved[code] = merged
+            return merged
+
+        for code in self.roles:
+            self.roles[code]["effectiveGrants"] = resolve(code, ())
 
     def _check_coverage(self) -> None:
         for name in self.out_of_scope:

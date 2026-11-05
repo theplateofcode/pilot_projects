@@ -1,0 +1,128 @@
+# The Intranet Administration app — Phase 5.
+#
+# Phase 5's showcase stack is SharePoint hub sites, SPFx web parts and Viva
+# Connections, and a staff member never opens this app: they open the hub. This
+# is the back office — the screens for the people who run the intranet rather
+# than read it, and the ones SharePoint is worst at: a site inventory with
+# review dates, an attestation report, and a service desk queue.
+#
+# So the areas are the four jobs, not the content types.
+#
+#   python tools/appgen.py --profile intranet-starter --prefix adi \
+#       --app apps/intranet-admin.yaml --roles security/intranet-roles.yaml
+
+meta:
+  name: Intranet Administration
+  profile: intranet-starter
+  prefix: adi
+  description: >
+    Adatum's intranet back office. Publishing, the policy library and its
+    attestations, the service desk queue, and the site inventory the governance
+    review works from.
+  # Every role from security/intranet-roles.yaml except the reader, who has no
+  # reason to open this app at all — they use the hub. A reader who did open it
+  # would see their own registrations and tickets and nothing else, because the
+  # role says so rather than because the app hides anything.
+  roles: [siteOwner, communicationsEditor, policyOwner, serviceDeskAgent,
+          intranetAdmin]
+
+areas:
+  - id: publishing
+    name: Publishing
+    icon: News
+    groups:
+      - id: news
+        name: News and banners
+        tables: [NewsArticle, Announcement]
+        note: >
+          An announcement is a banner on every screen in the practice and a
+          news article is a page people choose to open. Keeping them in one
+          group makes the difference in reach visible at the moment somebody
+          picks which to use, which is the decision that goes wrong.
+      - id: events
+        name: Events
+        tables: [CompanyEvent, EventRegistration]
+      - id: navigation
+        name: Navigation
+        tables: [QuickLink]
+        note: >
+          Quick links are the most-used and least-maintained thing on any
+          intranet, which is why they get a screen rather than a config file.
+
+  - id: policies
+    name: Policies
+    icon: Shield
+    groups:
+      - id: library
+        name: Policy library
+        tables: [PolicyDocument]
+      - id: attestations
+        name: Attestations
+        tables: [PolicyAttestation]
+        note: >
+          The Phase 5 exit criterion. An attestation row is evidence that a
+          named person was told a named version of a policy on a named date,
+          and it is the most valuable row in this profile the day after an
+          incident — which is why no role may delete one.
+
+  - id: servicedesk
+    name: Service desk
+    icon: Headset
+    groups:
+      - id: queue
+        name: Queue
+        tables: [ServiceRequest]
+      - id: catalogue
+        name: Service catalogue
+        tables: [ServiceCategory]
+        note: >
+          The SLA targets live here, so the queue can be judged against
+          something the firm agreed rather than against a feeling.
+      - id: knowledge
+        name: Knowledge base
+        tables: [KnowledgeArticle]
+        note: >
+          Under the service desk and not under Publishing, deliberately: the
+          knowledge base is the desk's own product, and the reason resolution
+          times fall is an agent writing the article the third time they
+          answer the same question.
+
+  - id: governance
+    name: Governance
+    icon: Settings
+    groups:
+      - id: sites
+        name: Site inventory
+        tables: [Site]
+        note: >
+          The one screen a SharePoint intranet cannot give you. Site sprawl is
+          the standard failure of this platform, and it is a reporting problem
+          before it is a permissions problem: nobody can review three hundred
+          sites they cannot list with their owner and review date beside them.
+      - id: taxonomy
+        name: Taxonomy
+        tables: [Term, TermSet]
+      - id: approvals
+        name: Approvals
+        tables: [ApprovalRequest, ApprovalStep]
+
+  - id: people
+    name: People
+    icon: People
+    groups:
+      - id: directory
+        name: Directory
+        tables: [Employee, OrgUnit, Office]
+        note: >
+          Read-only, and here because audience targeting is addressed to org
+          units and offices — so whoever sets an audience needs to see what
+          they are addressing.
+      - id: recognition
+        name: Recognition
+        tables: [Recognition]
+        note: >
+          A moderation screen, not an authoring one. No role may delete a
+          thank-you; an editor can unpublish one, which leaves a trace.
+      - id: organisation
+        name: Organisation
+        tables: [LegalEntity, CostCenter, Account, Contact]

@@ -335,3 +335,23 @@ work:
   - { code: CPD,      name: CPD and training,     billable: false, share: 0.07 }
   - { code: ADMIN,    name: Admin and overhead,   billable: false, share: 0.06 }
   - { code: BD,       name: Business development, billable: false, share: 0.04 }
+# Intranet configuration — Phase 5.
+intranet:
+  hubName: Woodgrove Hub
+  domain: woodgrove.sharepoint.example
+  communities: [Audit Technical Forum, Tax Update Group, Trainee Network]
+  serviceCategories:
+  - { code: IT_ACCESS, name: Access and accounts,     unit: ITS, response: 4,  resolve: 24 }
+  - { code: IT_HW,     name: Hardware and devices,    unit: ITS, response: 8,  resolve: 72 }
+  - { code: IT_APP,    name: Practice software,       unit: ITS, response: 4,  resolve: 48 }
+  - { code: FAC,       name: Office and facilities,   unit: PPL, response: 8,  resolve: 48 }
+  - { code: HR_QUERY,  name: People and payroll,      unit: PPL, response: 24, resolve: 120 }
+  policies:
+  - { number: POL-001, title: Code of ethics,                   category: Code of conduct,           attest: true,  days: 30 }
+  - { number: POL-002, title: Independence and objectivity,     category: Risk & compliance,         attest: true,  days: 14 }
+  - { number: POL-003, title: Anti-money laundering,            category: Risk & compliance,         attest: true,  days: 14 }
+  - { number: POL-004, title: Information security policy,      category: IT & information security, attest: true,  days: 14 }
+  - { number: POL-005, title: Data protection and UK GDPR,      category: Data protection,           attest: true,  days: 14 }
+  - { number: POL-006, title: Quality control (ISQM 1),         category: Quality management,        attest: true,  days: 30 }
+  - { number: POL-007, title: Expenses and travel policy,       category: Finance & expenses,        attest: false }
+  - { number: POL-008, title: Flexible working,                 category: HR,                        attest: false }

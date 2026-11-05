@@ -1,0 +1,514 @@
+# Intranet analytics dashboard — Phase 5.
+#
+#   python tools/pbigen.py --profile intranet-starter --prefix adi \
+#       --spec powerbi/intranet-dashboard.yaml
+#
+# Four pages. Adoption first, because an intranet that nobody opens is the
+# normal outcome and the number nobody measures. Then compliance, which is the
+# page the firm is obliged to produce; then the service desk, which is the one
+# with an agreed target to miss; then governance, because site sprawl is this
+# platform's standard failure.
+
+meta:
+  name: Intranet Analytics
+  description: Adoption, policy compliance, the service desk and site governance.
+  profile: intranet-starter
+  prefix: adi
+  storageMode: import
+  environmentParameter: DataverseEnvironment
+  defaultEnvironment: adatum-dev.crm11.dynamics.com
+  culture: en-GB
+
+tables:
+  - Employee
+  - OrgUnit
+  - CostCenter
+  - Office
+  - Site
+  - NewsArticle
+  - Announcement
+  - CompanyEvent
+  - EventRegistration
+  - PolicyDocument
+  - PolicyAttestation
+  - KnowledgeArticle
+  - QuickLink
+  - ServiceCategory
+  - ServiceRequest
+  - Recognition
+
+# The audience columns are multilookups — a many-to-many intersect table the
+# TDS endpoint does not expose — so "reach" cannot be measured from the model
+# as it stands. That is stated on the measure rather than worked around, and
+# it is the honest limit of this page.
+hide:
+  - Employee.mobilePhone
+  - EventRegistration.dietaryRequirements
+
+dateTable:
+  name: Date
+  from: 2024-01-01
+  yearEndMonth: 12
+
+measures:
+  # --- Adoption --------------------------------------------------------------
+  - name: Published News
+    folder: Adoption
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'NewsArticle' ),
+                 'NewsArticle'[statusname] = "Published" )
+    description: Posts live in the period.
+
+  - name: News Views
+    folder: Adoption
+    format: "#,0"
+    expression: "SUM( 'NewsArticle'[viewCount] )"
+    description: >
+      Total views of the posts in scope. A count of posts without a count of
+      views is a measure of effort, not of reach.
+
+  - name: Avg Views Per Post
+    folder: Adoption
+    format: "#,0"
+    expression: "DIVIDE( [News Views], [Published News] )"
+    description: >
+      The number that tells a communications team whether anyone is reading.
+      A rising post count with a falling average is the commonest intranet
+      failure there is.
+
+  - name: Drafts Waiting
+    folder: Adoption
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'NewsArticle' ),
+                 'NewsArticle'[statusname] IN { "Draft", "In Review" } )
+    description: Unpublished work in hand, which is a different problem from none.
+
+  - name: Stale Published News
+    folder: Adoption
+    format: "#,0"
+    description: >
+      Published more than a year ago and never archived. The clutter that makes
+      a search result useless.
+    expression: |
+      CALCULATE(
+          COUNTROWS( 'NewsArticle' ),
+          'NewsArticle'[statusname] = "Published",
+          FILTER( 'NewsArticle',
+                  'NewsArticle'[publishedOn] < TODAY() - 365 )
+      )
+
+  - name: Events
+    folder: Adoption
+    format: "#,0"
+    expression: "COUNTROWS( 'CompanyEvent' )"
+
+  - name: Registrations
+    folder: Adoption
+    format: "#,0"
+    expression: "COUNTROWS( 'EventRegistration' )"
+
+  - name: Attendance Rate
+    folder: Adoption
+    format: "0.0%"
+    description: >
+      Attended over everyone who was expected. The number that decides whether
+      to book the big room again.
+    expression: |
+      DIVIDE(
+          CALCULATE( COUNTROWS( 'EventRegistration' ),
+                     'EventRegistration'[statusname] = "Attended" ),
+          CALCULATE( COUNTROWS( 'EventRegistration' ),
+                     'EventRegistration'[statusname] IN { "Attended", "No Show" } )
+      )
+
+  - name: Waitlisted
+    folder: Adoption
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'EventRegistration' ),
+                 'EventRegistration'[statusname] = "Waitlisted" )
+    description: Demand the capacity did not meet.
+
+  - name: CPD Hours Offered
+    folder: Adoption
+    format: "#,0.0"
+    expression: "SUM( 'CompanyEvent'[cpdHours] )"
+    description: >
+      An architecture practice has to evidence continuing development, so an
+      event that carries no CPD hours is an event nobody can log.
+
+  - name: Recognition Posts
+    folder: Adoption
+    format: "#,0"
+    expression: "COUNTROWS( 'Recognition' )"
+    description: Peer recognition, which is the one piece of content staff write.
+
+  # --- Policy compliance -----------------------------------------------------
+  - name: Policies Requiring Attestation
+    folder: Compliance
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'PolicyDocument' ),
+                 'PolicyDocument'[requiresAttestation] = TRUE() )
+
+  - name: Attestations Due
+    folder: Compliance
+    format: "#,0"
+    expression: "COUNTROWS( 'PolicyAttestation' )"
+    description: Every person-policy pair in scope, exempt ones included.
+
+  - name: Attested
+    folder: Compliance
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'PolicyAttestation' ),
+                 'PolicyAttestation'[statusname] = "Completed" )
+
+  - name: Attestation Rate
+    folder: Compliance
+    format: "0.0%"
+    description: >
+      Signed over everything that had to be signed, exemptions excluded from
+      both halves — an exemption is a decision, not a failure, and counting it
+      as either makes the rate meaningless.
+    expression: |
+      DIVIDE(
+          [Attested],
+          CALCULATE( COUNTROWS( 'PolicyAttestation' ),
+                     'PolicyAttestation'[statusname] <> "Exempt" )
+      )
+
+  - name: Outstanding Attestations
+    folder: Compliance
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'PolicyAttestation' ),
+                 'PolicyAttestation'[statusname] IN { "Pending", "Overdue" } )
+    description: The chase list.
+
+  - name: Overdue Attestations
+    folder: Compliance
+    format: "#,0"
+    description: >
+      Past the due date the policy itself set. Distinct from pending, which is
+      somebody who simply has not got to it yet — a report whose only state is
+      "overdue" cannot tell the two apart.
+    expression: |
+      CALCULATE( COUNTROWS( 'PolicyAttestation' ),
+                 'PolicyAttestation'[statusname] = "Overdue" )
+
+  - name: People Not Fully Attested
+    folder: Compliance
+    format: "#,0"
+    description: >
+      People with at least one outstanding policy. The count a compliance
+      officer is actually asked for, and not the same as the count of
+      outstanding rows — one person behind on four policies is one person.
+    expression: |
+      CALCULATE( DISTINCTCOUNT( 'PolicyAttestation'[employee] ),
+                 'PolicyAttestation'[statusname] IN { "Pending", "Overdue" } )
+
+  - name: Policies Due For Review
+    folder: Compliance
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'PolicyDocument' ),
+                 FILTER( 'PolicyDocument',
+                         'PolicyDocument'[nextReviewDate] < TODAY() ) )
+    description: A policy past its own review date is a policy nobody owns.
+
+  # --- Service desk ----------------------------------------------------------
+  - name: Requests
+    folder: Service desk
+    format: "#,0"
+    expression: "COUNTROWS( 'ServiceRequest' )"
+
+  - name: Open Requests
+    folder: Service desk
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'ServiceRequest' ),
+                 'ServiceRequest'[statusname] IN
+                 { "New", "Assigned", "In Progress", "Waiting On Requester" } )
+    description: The queue as it stands.
+
+  - name: Unassigned Requests
+    folder: Service desk
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'ServiceRequest' ),
+                 'ServiceRequest'[statusname] = "New" )
+    description: Nobody has picked these up, which is the worst state to be in.
+
+  - name: Avg Hours To First Response
+    folder: Service desk
+    format: "#,0.0"
+    description: >
+      Raised to first reply. Requesters judge a service desk on this and not on
+      resolution, because this is the number that tells them they were heard.
+      It measures from raisedOn and not from createdOn: a ticket phoned in is
+      typed up later, so createdOn would measure the agent's typing rather
+      than the firm's responsiveness. The column exists for this measure.
+    expression: |
+      AVERAGEX(
+          FILTER( 'ServiceRequest',
+                  NOT ISBLANK( 'ServiceRequest'[firstRespondedOn] ) ),
+          DATEDIFF( 'ServiceRequest'[raisedOn],
+                    'ServiceRequest'[firstRespondedOn], HOUR )
+      )
+
+  - name: Avg Hours To Resolve
+    folder: Service desk
+    format: "#,0.0"
+    expression: |
+      AVERAGEX(
+          FILTER( 'ServiceRequest', NOT ISBLANK( 'ServiceRequest'[resolvedOn] ) ),
+          DATEDIFF( 'ServiceRequest'[raisedOn],
+                    'ServiceRequest'[resolvedOn], HOUR )
+      )
+    description: Raised to resolved, in hours.
+
+  - name: Response SLA Met %
+    folder: Service desk
+    format: "0.0%"
+    description: >
+      Against the target on the request's own category, not against a single
+      firm-wide number — a password reset and a new laptop are not the same
+      promise, which is the whole reason the target lives on the category.
+    expression: |
+      VAR Responded =
+          FILTER( 'ServiceRequest',
+                  NOT ISBLANK( 'ServiceRequest'[firstRespondedOn] ) )
+      RETURN
+      DIVIDE(
+          COUNTROWS( FILTER( Responded,
+              DATEDIFF( 'ServiceRequest'[raisedOn],
+                        'ServiceRequest'[firstRespondedOn], HOUR )
+              <= RELATED( 'ServiceCategory'[targetResponseHours] ) ) ),
+          COUNTROWS( Responded )
+      )
+
+  - name: Resolution SLA Met %
+    folder: Service desk
+    format: "0.0%"
+    expression: |
+      VAR Settled =
+          FILTER( 'ServiceRequest', NOT ISBLANK( 'ServiceRequest'[resolvedOn] ) )
+      RETURN
+      DIVIDE(
+          COUNTROWS( FILTER( Settled,
+              DATEDIFF( 'ServiceRequest'[raisedOn],
+                        'ServiceRequest'[resolvedOn], HOUR )
+              <= RELATED( 'ServiceCategory'[targetResolutionHours] ) ) ),
+          COUNTROWS( Settled )
+      )
+    description: The same comparison against the resolution target.
+
+  - name: Avg Satisfaction
+    folder: Service desk
+    format: "#,0.00"
+    expression: "AVERAGE( 'ServiceRequest'[satisfactionScore] )"
+    description: Out of five, from the requests where anybody answered.
+
+  - name: Self-Service Share
+    folder: Service desk
+    format: "0.0%"
+    description: >
+      Raised through the portal, Teams or the virtual agent rather than by
+      stopping somebody in the corridor. The number that says whether the
+      intranet is doing any of the service desk's work for it.
+    expression: |
+      DIVIDE(
+          CALCULATE( COUNTROWS( 'ServiceRequest' ),
+                     'ServiceRequest'[channelname] IN
+                     { "Portal", "Teams", "Virtual agent / Copilot" } ),
+          [Requests]
+      )
+
+  # --- Knowledge and governance ---------------------------------------------
+  - name: Knowledge Articles
+    folder: Governance
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'KnowledgeArticle' ),
+                 'KnowledgeArticle'[statusname] = "Published" )
+
+  - name: Knowledge Helpfulness
+    folder: Governance
+    format: "0.0%"
+    description: >
+      Helpful votes over all votes. Below about two-thirds and the article is
+      answering a different question from the one people arrive with.
+    expression: |
+      DIVIDE( SUM( 'KnowledgeArticle'[helpfulYes] ),
+              SUM( 'KnowledgeArticle'[helpfulYes] )
+              + SUM( 'KnowledgeArticle'[helpfulNo] ) )
+
+  - name: Knowledge Past Review
+    folder: Governance
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'KnowledgeArticle' ),
+                 FILTER( 'KnowledgeArticle',
+                         'KnowledgeArticle'[nextReviewDate] < TODAY() ) )
+    description: The number that tells a knowledge base from a graveyard.
+
+  - name: Sites
+    folder: Governance
+    format: "#,0"
+    expression: "COUNTROWS( 'Site' )"
+
+  - name: Sites Past Review
+    folder: Governance
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'Site' ),
+                 FILTER( 'Site', 'Site'[nextReviewDate] < TODAY() ) )
+    description: Site sprawl, counted.
+
+  - name: Sites With No Review Date
+    folder: Governance
+    format: "#,0"
+    description: >
+      Worse than overdue: a site nobody ever scheduled a review for. Overdue is
+      a late task; this is a site that fell out of the process entirely.
+    expression: |
+      CALCULATE( COUNTROWS( 'Site' ),
+                 FILTER( 'Site', ISBLANK( 'Site'[nextReviewDate] ) ) )
+
+  - name: Externally Shared Sites
+    folder: Governance
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'Site' ),
+                 'Site'[externalSharingEnabled] = TRUE() )
+    description: >
+      Sites people outside the firm can reach. Not a problem in itself — a
+      client extranet is supposed to be one — but a number that should never
+      change without somebody knowing.
+
+  - name: Pinned Links
+    folder: Governance
+    format: "#,0"
+    expression: |
+      CALCULATE( COUNTROWS( 'QuickLink' ), 'QuickLink'[isPinned] = TRUE() )
+    description: What is on the hub's front page.
+
+pages:
+  - name: Adoption
+    description: >
+      Whether anybody is using it. An intranet nobody opens is the normal
+      outcome and the number nobody measures.
+    visuals:
+      - { type: statTile, title: Published news, measure: Published News }
+      - { type: statTile, title: Avg views per post, measure: Avg Views Per Post }
+      - { type: statTile, title: Drafts waiting, measure: Drafts Waiting, status: true }
+      - { type: statTile, title: Stale posts, measure: Stale Published News, status: true }
+      - { type: statTile, title: Attendance, measure: Attendance Rate }
+      - { type: statTile, title: Recognition, measure: Recognition Posts }
+      - type: line
+        title: News views by month
+        measures: [News Views]
+        axis: Date.Year Month
+      - type: barHorizontal
+        title: Views by author's department
+        measures: [News Views]
+        axis: OrgUnit.name
+        dataLabels: true
+      - type: barHorizontal
+        title: Registrations by office
+        measures: [Registrations]
+        axis: Office.name
+        dataLabels: true
+      - type: table
+        title: Events and attendance
+        measures: [Registrations, Waitlisted, Attendance Rate, CPD Hours Offered]
+        axis: CompanyEvent.title
+
+  - name: Policy compliance
+    description: >
+      The page the firm is obliged to produce. An attestation row is evidence
+      that a named person was told a named version on a named date.
+    visuals:
+      - { type: statTile, title: Attestation rate, measure: Attestation Rate }
+      - { type: statTile, title: Outstanding, measure: Outstanding Attestations, status: true }
+      - { type: statTile, title: Overdue, measure: Overdue Attestations, status: true }
+      - { type: statTile, title: People behind, measure: People Not Fully Attested, status: true }
+      - { type: statTile, title: Policies to attest, measure: Policies Requiring Attestation }
+      - { type: statTile, title: Policies past review, measure: Policies Due For Review, status: true }
+      - type: barHorizontal
+        title: Attestation rate by policy
+        measures: [Attestation Rate]
+        axis: PolicyDocument.title
+        dataLabels: true
+      - type: barHorizontal
+        title: Overdue by department
+        measures: [Overdue Attestations]
+        axis: OrgUnit.name
+        dataLabels: true
+      - type: table
+        title: Chase list by policy
+        measures: [Attestations Due, Attested, Outstanding Attestations,
+                   Overdue Attestations]
+        axis: PolicyDocument.title
+
+  - name: Service desk
+    description: >
+      The one page with a target the firm agreed to, so the one page where
+      "missed" means something.
+    visuals:
+      - { type: statTile, title: Open, measure: Open Requests, status: true }
+      - { type: statTile, title: Unassigned, measure: Unassigned Requests, status: true }
+      - { type: statTile, title: Response SLA, measure: Response SLA Met % }
+      - { type: statTile, title: Resolution SLA, measure: Resolution SLA Met % }
+      - { type: statTile, title: Satisfaction, measure: Avg Satisfaction }
+      - { type: statTile, title: Self-service, measure: Self-Service Share }
+      - type: line
+        title: Requests raised by month
+        measures: [Requests]
+        axis: Date.Year Month
+      - type: barHorizontal
+        title: Requests by category
+        measures: [Requests]
+        axis: ServiceCategory.name
+        dataLabels: true
+      - type: barHorizontal
+        title: Hours to resolve by category
+        measures: [Avg Hours To Resolve]
+        axis: ServiceCategory.name
+        dataLabels: true
+      - type: table
+        title: SLA by category
+        measures: [Requests, Response SLA Met %, Resolution SLA Met %,
+                   Avg Satisfaction]
+        axis: ServiceCategory.name
+
+  - name: Knowledge and governance
+    description: >
+      Site sprawl is this platform's standard failure, and it is a reporting
+      problem before it is a permissions problem.
+    visuals:
+      - { type: statTile, title: Sites, measure: Sites }
+      - { type: statTile, title: Past review, measure: Sites Past Review, status: true }
+      - { type: statTile, title: No review date, measure: Sites With No Review Date, status: true }
+      - { type: statTile, title: Externally shared, measure: Externally Shared Sites, status: true }
+      - { type: statTile, title: Articles, measure: Knowledge Articles }
+      - { type: statTile, title: Past review, measure: Knowledge Past Review, status: true }
+      - type: barHorizontal
+        title: Sites by type
+        measures: [Sites]
+        # The label column, not the integer behind it: a choice is <col> plus
+        # <col>name over the TDS endpoint, and only the label is visible.
+        axis: Site.siteTypename
+        dataLabels: true
+      - type: barHorizontal
+        title: Helpfulness by article
+        measures: [Knowledge Helpfulness]
+        axis: KnowledgeArticle.title
+        dataLabels: true
+      - type: table
+        title: Site inventory
+        measures: [Sites, Sites Past Review, Externally Shared Sites]
+        axis: Site.name

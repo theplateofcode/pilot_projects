@@ -139,7 +139,7 @@ Effort below is a rough guide for one person working full time; scale it to your
 | **2. CRM** *(built from source)* | 3–4 weeks | CRM model-driven app; pipeline and proposal flow; Power Pages client portal; conflict-check process (law overlay) | Lead → opportunity → won → project hand-off works; portal user sees only their own records |
 | **3. Work Management** *(built from source)* | 4–6 weeks | Project/backlog/time app on the chosen stack; timesheet approval; resourcing view; status report; utilisation report | 10k+ demo time entries perform well; project created from a won opportunity |
 | **4. Travel Portal** *(built from source)* | 2–3 weeks | SharePoint lists provisioned from template; canvas app (request, approve, expenses with receipt photo); policy checks; duty-of-care view | Trip request → approval → booking → expense claim → paid, with an out-of-policy example |
-| **5. Intranet** | 3–4 weeks | Hub + communication sites from PnP template; news, events, policy library with attestation, service desk; SPFx web parts; Viva Connections dashboard | Audience targeting works; policy attestation report; mobile-friendly |
+| **5. Intranet** *(built from source)* | 3–4 weeks | Hub + communication sites from PnP template; news, events, policy library with attestation, service desk; SPFx web parts; Viva Connections dashboard | Audience targeting works; policy attestation report; mobile-friendly |
 | **6. Industry overlays + polish** | 2–3 weeks | Apply each industry profile to at least one pilot; demo data per fictional firm; demo videos and case studies | Each profile deploys cleanly from scratch; 3–5 minute video per pilot |
 | **7. Generators & re-platforming** *(generators done)* | ongoing | ~~Generators from the resolved model (Dataverse, SharePoint, SQL)~~; one pilot rebuilt on a second stack | Re-platformed pilot built without editing the canonical schema |
 
@@ -212,6 +212,7 @@ Generated from the schema and checked in CI:
 | Five fictional firms | Woodgrove, Fabrikam, Adatum, Contoso and Northwind, each dressed for its industry |
 | Travel on two platforms (Phase 4) | the same model generated to 32 Dataverse tables and 35 SharePoint lists in one build, with the 15 platform limits reported rather than discovered |
 | Work Management at volume (Phase 3) | 14,242 generated time entries loaded into the generated schema and queried in tests, with the reporting indexes a high-volume table needs |
+| The Intranet (Phase 5) | audience targeting and a policy attestation report, both generated and both asserted by tests; all five pilots now build from one command each |
 
 | Still to do | Needs |
 |---|---|
@@ -221,6 +222,23 @@ Generated from the schema and checked in CI:
 | Onboarding flow | Power Automate |
 | The report canvas | Power BI Desktop, from the generated page spec |
 | Demo video and case study | the above, working |
+
+### Phase 5 — Intranet, built from source
+
+The fifth and last pilot, which makes all five built from source: 32 SharePoint lists, 10 term
+sets, 6 roles, 23 forms and views, 36 Power BI measures over four pages, 458 solution
+components and a 1,192-row demo practice. Its exit criteria are audience targeting and a policy
+attestation report, and both are generated: about 40% of content is addressed to named
+departments or studios, and the attestation report shows 38 outstanding of 320, 29 of them past
+the due date the policy itself set.
+
+Phase 5's theme is **the thing nobody validated because nothing used it yet**. Audience
+targeting is carried entirely by multilookup columns, which the demo-data validator did not
+check at all; `secgen` resolved role inheritance only one level deep, so the Communications
+Editor — three levels down a chain — came out with 10 tables instead of 29; and
+`PolicyAttestation` was organization-owned, which made every member of staff able to read every
+colleague's compliance status. Nine findings in
+[12-phase5-intranet.md §6](12-phase5-intranet.md#6-what-the-fifth-pilot-actually-cost).
 
 ### Phase 3 — Work Management, built from source
 
@@ -264,8 +282,9 @@ latent defects a second pilot was always going to surface — is in
 [08-phase2-crm.md §7](08-phase2-crm.md#7-what-the-second-pilot-actually-cost).
 
 The full build guides are [06-phase1-core-hr.md](06-phase1-core-hr.md),
-[08-phase2-crm.md](08-phase2-crm.md), [11-phase3-work.md](11-phase3-work.md) and
-[10-phase4-travel.md](10-phase4-travel.md).
+[08-phase2-crm.md](08-phase2-crm.md), [11-phase3-work.md](11-phase3-work.md),
+[10-phase4-travel.md](10-phase4-travel.md) and
+[12-phase5-intranet.md](12-phase5-intranet.md).
 
 ## 11. Next ten steps
 

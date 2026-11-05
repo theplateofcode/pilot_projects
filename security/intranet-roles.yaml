@@ -1,0 +1,376 @@
+# Phase 5 security roles — the Intranet.
+#
+# Phase 5's showcase stack is SharePoint hub sites, SPFx web parts and Viva
+# Connections. There are no Dataverse roles on that stack: permissions are
+# SharePoint groups on sites and lists, and audience targeting is a property of
+# the content rather than a privilege. This file is still the specification —
+# the same arrangement as Phase 4, where travel-roles.yaml is the SharePoint
+# permission design — and it builds real roles if the intranet is ever
+# re-platformed onto Dataverse in Phase 7.
+#
+# Read it with one thing in mind: an intranet's security problem is not who can
+# read, it is **who can publish**. Everything is readable by everyone by
+# default; the roles are about the authoring boundary.
+#
+#   python tools/secgen.py --profile intranet-starter --prefix adi \
+#       --roles security/intranet-roles.yaml
+
+meta:
+  profile: intranet-starter
+  prefix: adi
+  businessUnitStrategy: >
+    Adatum is one legal entity with two studios, so one root business unit.
+    Depth still separates own-row from firm-wide, which is the distinction the
+    SharePoint design has to honour: a site owner edits their own site's
+    content, a communications team edits the hub's.
+
+columnProfiles:
+  - name: Contact Details
+    description: >
+      Personal mobile numbers and client contact details, on core tables. They
+      are classified once in the schema, so every phase that touches those
+      tables has to cover them — which is why this looks like Phase 3's and
+      Phase 4's and says the same thing.
+    columns:
+      - Employee.mobilePhone
+      - Contact.email
+      - Contact.businessPhone
+      - Contact.mobilePhone
+      - Contact.address
+      - Account.taxNumber
+    readFor: [intranetAdmin]
+    writeFor: [intranetAdmin]
+    # A service desk agent phones the person who raised the ticket.
+    readAlso:
+      serviceDeskAgent: [Employee.mobilePhone]
+      communicationsEditor: [Employee.mobilePhone]
+
+  - name: Event Dietary Requirements
+    description: >
+      "Coeliac", "halal", "no nuts". Innocuous on a catering sheet and
+      special-category data under the UK GDPR everywhere else: a dietary
+      requirement can reveal a religion or a medical condition. The schema
+      classifies it above its table and `secgen` would not generate the roles
+      until a profile covered it, which is the check doing its job.
+    columns:
+      - EventRegistration.dietaryRequirements
+    readFor: [communicationsEditor]
+    writeFor: [communicationsEditor]
+    # A site owner catering their own event needs the list for that event;
+    # everybody can of course see and change their own.
+    readAlso:
+      siteOwner: [EventRegistration.dietaryRequirements]
+
+outOfScope:
+  - table: Currency
+    why: The standard transactioncurrency table; read access comes with the basic privileges.
+  - table: ExchangeRate
+    why: Dataverse provides the exchange rate table itself, so there is no custom table to grant on.
+  - table: AuditEvent
+    why: >
+      On SharePoint this is the unified audit log in Purview, read through
+      compliance tooling rather than through a role on a table.
+  - table: AppSetting
+    why: Deployment configuration, not application data; it is the organization table.
+  - table: ApprovalPolicy
+    why: >
+      News and policy approval runs through the shared engine, but its policy
+      rows are configured once by the people who own the approval engine
+      itself — a Phase 1 role, not an intranet one.
+  - table: ApprovalPolicyStep
+    why: As ApprovalPolicy.
+
+roles:
+  # ---------------------------------------------------------------------------
+  - code: reader
+    name: Intranet – Reader
+    description: >
+      Everybody. Reads published content, registers for events, attests to
+      policies, raises service requests and gives recognition. Cannot publish
+      anything.
+    appliesTo: All staff, assigned through an Entra group.
+    rationale: >
+      An intranet is a read-mostly system, so this role is where nearly all
+      the usage is, and the only authoring it has is about itself: its own
+      registrations, its own attestations, its own tickets.
+    rules:
+      - tables: [Site, NewsArticle, Announcement, CompanyEvent, QuickLink,
+                 KnowledgeArticle, PolicyDocument, ServiceCategory, Recognition,
+                 Employee, OrgUnit, CostCenter, Office, LegalEntity, Country,
+                 Language, HolidayCalendar, Holiday, Term, TermSet, Account,
+                 Contact]
+        privileges: [read]
+        depth: organization
+        why: >
+          The whole point of an intranet. Audience targeting narrows what is
+          *shown*, not what may be read — it is a relevance feature, and
+          treating it as a security boundary is how a firm ends up believing a
+          policy is confidential because it was not on somebody's home page.
+
+      - tables: [EventRegistration, PolicyAttestation]
+        privileges: [create, read, write, append, appendTo]
+        depth: user
+        why: >
+          You register yourself and you attest for yourself. No delete: a
+          withdrawn registration is cancelled and an attestation record is
+          evidence, so neither may be removed.
+
+      - tables: [ServiceRequest]
+        privileges: [create, read, write, append, appendTo]
+        depth: user
+        why: Raise and update your own tickets, and see nobody else's.
+
+      - tables: [Recognition]
+        privileges: [create, read, append, appendTo]
+        depth: organization
+        why: >
+          Anybody may thank anybody, and recognition is public by design. Read
+          at organization depth because a wall of recognition only works if
+          everyone can see it. No write or delete, deliberately: editing or
+          deleting somebody else's thank-you is not a thing an intranet should
+          allow, and editing your own after the fact makes the wall unreliable.
+
+      - tables: [Comment, DocumentReference]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: user
+        why: Their own comments and attachments.
+
+      - tables: [ApprovalRequest, ApprovalStep]
+        privileges: [read]
+        depth: user
+        why: Their own submissions — a draft news post waiting on an editor.
+
+  # ---------------------------------------------------------------------------
+  - code: siteOwner
+    name: Intranet – Site Owner
+    inherits: reader
+    description: >
+      Owns a team or community site: publishes to it, curates its links and
+      events, and answers for its review date. Cannot publish to the hub or
+      change a policy.
+    appliesTo: The named owner of each team, project or community site.
+    rationale: >
+      The role that makes an intranet maintainable, and the one most firms
+      never define — which is how a hub ends up with three hundred sites and
+      nobody accountable for any of them. Unit depth throughout: a site owner
+      owns their part of the firm's intranet, not the firm's.
+    rules:
+      - tables: [NewsArticle, CompanyEvent, QuickLink, KnowledgeArticle]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: businessUnit
+        why: >
+          Author and curate within their own unit. Delete is included because
+          an out-of-date quick link is clutter rather than a record, and
+          clutter is what kills an intranet.
+
+      - tables: [Site]
+        privileges: [read, write]
+        depth: businessUnit
+        why: >
+          Update their own site's metadata and record its review. Not create or
+          delete: creating sites is governance, which is why site sprawl is a
+          governance problem.
+
+      - tables: [EventRegistration]
+        privileges: [read, write]
+        depth: businessUnit
+        why: >
+          See who is coming to their events and check them in. Write, not
+          create: registering on somebody's behalf would make attendance
+          unverifiable.
+
+      - tables: [Announcement]
+        privileges: [read]
+        depth: organization
+        why: >
+          Read only. A banner is firm-wide by nature, so it belongs to
+          communications even when it is about one studio.
+
+  # ---------------------------------------------------------------------------
+  - code: communicationsEditor
+    name: Intranet – Communications Editor
+    inherits: siteOwner
+    description: >
+      Publishes to the hub: firm news, banners, the events calendar and the
+      featured content. Approves what site owners submit.
+    appliesTo: The communications team — two or three people.
+    rationale: >
+      The publishing boundary. Everything this role adds is firm-wide reach,
+      which is the thing an intranet has to be careful with: a critical banner
+      goes to every screen in the practice.
+    rules:
+      - tables: [NewsArticle, Announcement, CompanyEvent, QuickLink]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: organization
+        why: >
+          Firm-wide authoring, including the banner. This is the whole
+          difference between a site owner and an editor.
+
+      - tables: [ApprovalRequest, ApprovalStep]
+        privileges: [read, write]
+        depth: organization
+        why: Approve a news post submitted for review.
+
+      - tables: [Recognition]
+        privileges: [read, write]
+        depth: organization
+        why: >
+          Unpublish something inappropriate. Write and not delete: taking a
+          post off the wall is a moderation decision and should leave a trace.
+
+  # ---------------------------------------------------------------------------
+  - code: policyOwner
+    name: Intranet – Policy Owner
+    description: >
+      Owns the policy library and the attestation campaign: publishes a
+      version, sets who must sign and by when, and reads who has not.
+    appliesTo: Risk, compliance and the quality manager.
+    rationale: >
+      Stated in full rather than inherited. A policy owner needs firm-wide
+      read of every attestation — which is the one genuinely sensitive read in
+      this phase — and needs none of the news, events or link curation that
+      the editor roles are built around.
+    rules:
+      - tables: [Employee, OrgUnit, CostCenter, Office, LegalEntity, Country,
+                 Language, Term, TermSet, Site, NewsArticle, Announcement,
+                 CompanyEvent, QuickLink, KnowledgeArticle, ServiceCategory]
+        privileges: [read]
+        depth: organization
+        why: The directory and the content, read-only.
+
+      - tables: [PolicyDocument]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: organization
+        why: >
+          The policy library is this role's whole job, including retiring a
+          superseded version.
+
+      - tables: [PolicyAttestation]
+        privileges: [create, read, write, append, appendTo]
+        depth: organization
+        why: >
+          The attestation report. Reading every person's signature is the point
+          of the role; no delete, because an attestation is evidence that
+          somebody was told — the single most valuable row in this profile
+          after an incident.
+
+      - tables: [ApprovalRequest, ApprovalStep]
+        privileges: [read, write]
+        depth: organization
+        why: Approve a policy version before it is published.
+
+      - tables: [Comment, DocumentReference]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: user
+        why: Their own notes and the policy documents themselves.
+
+  # ---------------------------------------------------------------------------
+  - code: serviceDeskAgent
+    name: Intranet – Service Desk Agent
+    description: >
+      Works the service desk queue: triages, assigns, resolves and closes
+      requests, and maintains the knowledge base behind them.
+    appliesTo: IT and facilities, who share the queue by category.
+    rationale: >
+      Also stated in full. An agent needs firm-wide read and write on tickets
+      and nothing else firm-wide, and inheriting the reader role would have
+      given own-row ticket access that the firm-wide grant then has to widen —
+      clearer to say it once.
+    rules:
+      - tables: [Employee, OrgUnit, CostCenter, Office, LegalEntity, Country,
+                 Language, Term, TermSet, Site, NewsArticle, Announcement,
+                 CompanyEvent, QuickLink, PolicyDocument, Account, Contact]
+        privileges: [read]
+        depth: organization
+        why: >
+          The directory, because a ticket is about a person in a studio using a
+          device, and the content, because half of triage is pointing somebody
+          at the page that already answers them.
+
+      - tables: [ServiceRequest]
+        privileges: [create, read, write, append, appendTo, assign]
+        depth: organization
+        why: >
+          The queue. Assign is included and matters: a ticket moving between
+          agents is the normal case, and a desk that cannot reassign is a desk
+          where tickets die with whoever first touched them. No delete — a
+          closed ticket is the record of what was done.
+
+      - tables: [ServiceCategory]
+        privileges: [read, write]
+        depth: organization
+        why: >
+          Tune the SLA targets and the default assignee. Not create or delete:
+          adding a category is a service-design decision.
+
+      - tables: [KnowledgeArticle]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: organization
+        why: >
+          The knowledge base is the service desk's own product. The reason
+          resolution times fall is that an agent wrote the article the third
+          time they answered the same question.
+
+      - tables: [Comment, DocumentReference]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: organization
+        why: >
+          Firm-wide, unlike every other role: a screenshot attached to somebody
+          else's ticket is the attachment an agent most needs to open.
+
+  # ---------------------------------------------------------------------------
+  - code: intranetAdmin
+    name: Intranet – Administrator
+    description: >
+      Owns the platform: the site inventory, external sharing, the taxonomy and
+      the governance review. The only role that creates or deletes a site.
+    appliesTo: One or two people in IT, with the practice manager.
+    rationale: >
+      The governance role, and the smallest one. It is deliberately not a
+      superset of the editor roles: an administrator manages the estate and
+      does not publish the news, because combining the two is how an intranet
+      ends up with one person who is the only one who can do anything.
+    rules:
+      - tables: [Site]
+        privileges: [create, read, write, delete, append, appendTo, assign, share]
+        depth: organization
+        why: >
+          Provisioning, external sharing and the review cycle. Share is
+          included because deciding who a site is shared with is precisely
+          this role's job.
+
+      - tables: [Term, TermSet]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: organization
+        why: >
+          The managed metadata. Nearly all the intranet's reference data is a
+          term rather than a choice set, so the taxonomy is the configuration.
+
+      - tables: [Employee, OrgUnit, CostCenter, Office, LegalEntity, Country,
+                 Language, HolidayCalendar, Holiday, Account, Contact]
+        privileges: [read]
+        depth: organization
+        why: >
+          Read the directory to set site ownership and audience targeting.
+          Not write — the directory belongs to HR.
+
+      - tables: [NewsArticle, Announcement, CompanyEvent, QuickLink,
+                 KnowledgeArticle, PolicyDocument, ServiceCategory,
+                 ServiceRequest, Recognition, EventRegistration,
+                 PolicyAttestation]
+        privileges: [read]
+        depth: organization
+        why: >
+          Read everything, publish nothing. An administrator has to be able to
+          find content to answer a question about it; an administrator who can
+          also publish it is a single point of both failure and blame.
+
+      - tables: [ApprovalRequest, ApprovalStep]
+        privileges: [read]
+        depth: organization
+        why: See where a submission is, without deciding it.
+
+      - tables: [Comment, DocumentReference]
+        privileges: [create, read, write, delete, append, appendTo]
+        depth: organization
+        why: Platform-wide cleanup.

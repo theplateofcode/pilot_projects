@@ -315,3 +315,23 @@ work:
   - { code: INTERNAL, name: Internal project,    billable: false, share: 0.07 }
   - { code: ADMIN,   name: Admin and overhead,   billable: false, share: 0.05 }
   - { code: TRAIN,   name: Training,             billable: false, share: 0.03 }
+# Intranet configuration — Phase 5.
+intranet:
+  hubName: Contoso Hub
+  domain: contoso.sharepoint.example
+  communities: [Engineering Guild, Product Council, On-Call Crew]
+  serviceCategories:
+  - { code: IT_ACCESS, name: Access and accounts,     unit: ENG, response: 2,  resolve: 12 }
+  - { code: IT_HW,     name: Hardware and devices,    unit: ENG, response: 8,  resolve: 48 }
+  - { code: IT_ENV,    name: Environments and builds, unit: ENG, response: 2,  resolve: 24 }
+  - { code: FAC,       name: Office and facilities,   unit: PPL, response: 8,  resolve: 48 }
+  - { code: HR_QUERY,  name: People and payroll,      unit: PPL, response: 24, resolve: 120 }
+  policies:
+  - { number: POL-001, title: Code of conduct,                  category: Code of conduct,           attest: true,  days: 30 }
+  - { number: POL-002, title: Information security policy,      category: IT & information security, attest: true,  days: 14 }
+  - { number: POL-003, title: Acceptable use and AI tools,      category: IT & information security, attest: true,  days: 14 }
+  - { number: POL-004, title: Privacy and data handling,        category: Data protection,           attest: true,  days: 14 }
+  - { number: POL-005, title: SOC 2 control responsibilities,   category: Risk & compliance,         attest: true,  days: 30 }
+  - { number: POL-006, title: Incident response and on-call,    category: Quality management,        attest: true,  days: 14 }
+  - { number: POL-007, title: Expenses and travel policy,       category: Finance & expenses,        attest: false }
+  - { number: POL-008, title: Remote-first working,             category: HR,                        attest: false }

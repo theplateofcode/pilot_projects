@@ -189,6 +189,80 @@ class TestInheritance(unittest.TestCase):
         self.assertNotIn("Compensation", rs.roles["manager"]["effectiveGrants"])
 
 
+class TestInheritanceChains(unittest.TestCase):
+    """Inheritance has to be transitive.
+
+    Merging only the immediate parent's own grants dropped the grandparent's.
+    The intranet's Communications Editor inherits Site Owner, which inherits
+    Reader, and came out with ten tables instead of twenty-nine — unable to
+    read the staff directory it is written to publish about. Every earlier
+    phase used a single level, so nothing exposed it.
+    """
+
+    MODEL = model({"A": entity(), "B": entity(), "C": entity()})
+
+    def _chain(self, **extra):
+        spec = {"roles": [
+            {"code": "base", "name": "Base", "rules": [
+                {"tables": ["A"], "privileges": ["read"], "depth": "user"}]},
+            {"code": "middle", "name": "Middle", "inherits": "base", "rules": [
+                {"tables": ["B"], "privileges": ["read"], "depth": "businessUnit"}]},
+            {"code": "top", "name": "Top", "inherits": "middle", "rules": [
+                {"tables": ["C"], "privileges": ["read"], "depth": "organization"}],
+             **extra},
+        ]}
+        return secgen.RoleSet(spec, self.MODEL, "wga")
+
+    def test_a_grandparents_grant_reaches_the_grandchild(self):
+        grants = self._chain().roles["top"]["effectiveGrants"]
+        self.assertEqual(sorted(grants), ["A", "B", "C"])
+        self.assertEqual(grants["A"]["read"], "user")
+        self.assertEqual(grants["B"]["read"], "businessUnit")
+
+    def test_the_middle_role_is_unaffected(self):
+        grants = self._chain().roles["middle"]["effectiveGrants"]
+        self.assertEqual(sorted(grants), ["A", "B"])
+
+    def test_a_grandchild_may_widen_a_grandparents_depth(self):
+        spec = {"roles": [
+            {"code": "base", "name": "Base", "rules": [
+                {"tables": ["A"], "privileges": ["read"], "depth": "user"}]},
+            {"code": "middle", "name": "Middle", "inherits": "base", "rules": []},
+            {"code": "top", "name": "Top", "inherits": "middle", "rules": [
+                {"tables": ["A"], "privileges": ["read"], "depth": "organization"}]},
+        ]}
+        rs = secgen.RoleSet(spec, self.MODEL, "wga")
+        self.assertEqual(rs.roles["top"]["effectiveGrants"]["A"]["read"], "organization")
+        self.assertEqual(rs.roles["base"]["effectiveGrants"]["A"]["read"], "user")
+
+    def test_a_denial_at_the_top_keeps_the_inherited_own_row_access(self):
+        rs = self._chain(denied={"tables": ["A"], "why": "not the whole firm"})
+        self.assertEqual(rs.roles["top"]["effectiveGrants"]["A"], {"read": "user"})
+
+    def test_circular_inheritance_is_an_error_rather_than_a_hang(self):
+        spec = {"roles": [
+            {"code": "one", "name": "One", "inherits": "two", "rules": []},
+            {"code": "two", "name": "Two", "inherits": "one", "rules": []},
+        ]}
+        rs = secgen.RoleSet(spec, self.MODEL, "wga")
+        self.assertTrue(any("circular" in e for e in rs.errors), rs.errors)
+
+    def test_a_role_inherits_the_same_way_whatever_order_it_is_declared_in(self):
+        """A child declared before its parent has to resolve identically."""
+        forward = secgen.RoleSet({"roles": [
+            {"code": "base", "name": "B", "rules": [
+                {"tables": ["A"], "privileges": ["read"], "depth": "user"}]},
+            {"code": "top", "name": "T", "inherits": "base", "rules": []},
+        ]}, self.MODEL, "wga")
+        backward = secgen.RoleSet({"roles": [
+            {"code": "top", "name": "T", "inherits": "base", "rules": []},
+            {"code": "base", "name": "B", "rules": [
+                {"tables": ["A"], "privileges": ["read"], "depth": "user"}]},
+        ]}, self.MODEL, "wga")
+        self.assertEqual(forward.roles["top"]["effectiveGrants"],
+                         backward.roles["top"]["effectiveGrants"])
+
+
 class TestColumnProfiles(unittest.TestCase):
     MODEL = model({
         "Employee": entity(attributes={

@@ -334,3 +334,28 @@ work:
   - { code: COMP,    name: Competitions,           billable: false, share: 0.05 }
   - { code: ADMIN,   name: Admin and overhead,     billable: false, share: 0.04 }
   - { code: CPD,     name: CPD and training,       billable: false, share: 0.03 }
+# Intranet configuration — Phase 5. Most of the intranet's vocabulary is in the
+# schema's term sets (news categories, policy categories, company values), so a
+# firm only supplies what is genuinely its own: the service desk it runs and the
+# policies it has to get attested.
+intranet:
+  hubName: Adatum Hub
+  domain: adatum.sharepoint.example
+  # Which departments get a team site of their own, and which get a community.
+  communities: [BIM Forum, Sustainability Group, Heritage Network]
+  serviceCategories:
+  - { code: IT_ACCESS, name: Access and accounts, unit: TEC, response: 4,  resolve: 24 }
+  - { code: IT_HW,     name: Hardware and devices, unit: TEC, response: 8,  resolve: 72 }
+  - { code: IT_CAD,    name: CAD and BIM software, unit: TEC, response: 4,  resolve: 48 }
+  - { code: FAC,       name: Studio and facilities, unit: BUS, response: 8,  resolve: 48 }
+  - { code: HR_QUERY,  name: People and payroll,    unit: BUS, response: 24, resolve: 120 }
+  - { code: PRINT,     name: Printing and plotting, unit: BUS, response: 4,  resolve: 24 }
+  policies:
+  - { number: POL-001, title: Code of conduct,                 category: Code of conduct,        attest: true,  days: 30 }
+  - { number: POL-002, title: Information security policy,      category: IT & information security, attest: true, days: 14 }
+  - { number: POL-003, title: Data protection and UK GDPR,      category: Data protection,        attest: true,  days: 14 }
+  - { number: POL-004, title: Health and safety on site,        category: Health & safety,        attest: true,  days: 7 }
+  - { number: POL-005, title: Expenses and travel policy,       category: Finance & expenses,     attest: false }
+  - { number: POL-006, title: Quality management system,        category: Quality management,     attest: true,  days: 30 }
+  - { number: POL-007, title: Anti-bribery and corruption,      category: Risk & compliance,      attest: true,  days: 30 }
+  - { number: POL-008, title: Flexible working,                 category: HR,                     attest: false }

@@ -278,8 +278,13 @@ entities:
       documentUrl: url
 
   PolicyAttestation:
-    description: Evidence that a person read and accepted a specific version of a policy.
-    ownership: organization
+    description: >-
+      Evidence that a person read and accepted a specific version of a policy. User-owned, like
+      EventRegistration, because the row is one person's response to something: organization
+      ownership makes "my attestations" inexpressible, so every role asking for own-row access
+      gets the whole firm's instead — which is how every member of staff came to be able to read
+      every colleague's compliance status.
+    ownership: user
     volume: high
     primary: auto
     keys: [[policy, employee, policyVersion]]
@@ -364,7 +369,17 @@ entities:
       channel: { type: choice(RequestChannel), default: portal }
       assignedTo: lookup(Employee)
       office: lookup(Office)
-      dueOn: datetime
+      raisedOn:
+        type: datetime!
+        description: >-
+          When the requester raised it, which is not when the row was created. A ticket that
+          arrives by email or phone is typed in by an agent, sometimes the next morning, so
+          measuring a response target from createdOn measures the agent's typing rather than
+          the firm's responsiveness. Every SLA measure starts here.
+      dueOn:
+        type: datetime
+        description: >-
+          When the response target expires: raisedOn plus the category's targetResponseHours.
       firstRespondedOn: datetime
       resolvedOn: datetime
       resolution: text

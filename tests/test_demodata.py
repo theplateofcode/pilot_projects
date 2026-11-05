@@ -246,6 +246,109 @@ class TestValidatorLookups(unittest.TestCase):
         self.assertEqual(v.errors, [])
 
 
+def audience_model():
+    """A model with the multi-value and term columns the intranet uses."""
+    base = tiny_model()
+    base["termSets"] = {
+        "NewsCategory": {"open": False, "hierarchical": False,
+                         "terms": ["Firm news", "People"]},
+        "Topic": {"open": True, "hierarchical": False, "terms": []},
+        "ServiceLine": {"open": False, "hierarchical": True,
+                        "terms": [{"name": "Advisory",
+                                   "children": ["Transactions"]}]},
+    }
+    base["entities"]["NewsArticle"] = {
+        "layer": "intranet", "description": "A post.", "ownership": "user",
+        "volume": "low", "sensitivity": "internal",
+        "platforms": {"dataverse": "custom"}, "primary": "title", "keys": [],
+        "attributes": {
+            "id": {"type": "guid", "required": True, "trait": "base",
+                   "physical": {"dataverse": "<table>id (native primary key)"}},
+            "title": {"type": "string", "required": True},
+            "category": {"type": "term", "termSet": "NewsCategory", "required": True},
+            "tags": {"type": "multiterm", "termSet": "Topic"},
+            "line": {"type": "term", "termSet": "ServiceLine"},
+            "audienceOrgUnits": {"type": "multilookup", "target": "OrgUnit"},
+        },
+    }
+    return base
+
+
+class TestValidatorMultiValueColumns(unittest.TestCase):
+    """Audience targeting is carried entirely by multilookup columns, and
+    nothing checked them until the intranet was built. A dangling audience is
+    worse than an empty one: it silently narrows who sees a policy, and the
+    policy still looks published."""
+
+    def _rows(self, **extra):
+        return {
+            "OrgUnit": [{"code": "ENG", "name": "Engineering"},
+                        {"code": "OPS", "name": "Operations"}],
+            "NewsArticle": [{"code": "N1", "title": "Hello",
+                             "category": "Firm news", **extra}],
+        }
+
+    def test_an_audience_of_real_units_passes(self):
+        v = validate(self._rows(audienceOrgUnits=["ENG", "OPS"]), audience_model())
+        self.assertEqual(v.errors, [])
+
+    def test_an_empty_audience_passes_and_means_everyone(self):
+        v = validate(self._rows(), audience_model())
+        self.assertEqual(v.errors, [])
+
+    def test_an_audience_naming_a_unit_that_does_not_exist_is_an_error(self):
+        v = validate(self._rows(audienceOrgUnits=["ENG", "GHOST"]), audience_model())
+        self.assertTrue(any("GHOST" in e and "OrgUnit" in e for e in v.errors),
+                        v.errors)
+
+    def test_a_repeated_value_is_an_error(self):
+        v = validate(self._rows(audienceOrgUnits=["ENG", "ENG"]), audience_model())
+        self.assertTrue(any("repeats a value" in e for e in v.errors), v.errors)
+
+    def test_a_bare_string_where_a_list_belongs_is_an_error(self):
+        v = validate(self._rows(audienceOrgUnits="ENG"), audience_model())
+        self.assertTrue(any("must be a list" in e for e in v.errors), v.errors)
+
+
+class TestValidatorTerms(unittest.TestCase):
+    """The intranet is the first module whose reference data is mostly managed
+    metadata rather than choice sets, so terms needed checking too."""
+
+    def _rows(self, **extra):
+        return {
+            "OrgUnit": [{"code": "ENG", "name": "Engineering"}],
+            "NewsArticle": [{"code": "N1", "title": "Hello", **extra}],
+        }
+
+    def test_a_real_term_passes(self):
+        v = validate(self._rows(category="Firm news"), audience_model())
+        self.assertEqual(v.errors, [])
+
+    def test_a_term_that_is_not_in_the_set_is_an_error(self):
+        v = validate(self._rows(category="Invented"), audience_model())
+        self.assertTrue(any("not a term of NewsCategory" in e for e in v.errors),
+                        v.errors)
+
+    def test_an_open_set_accepts_anything(self):
+        """`open: true` means the set grows in use, so a new tag is not wrong."""
+        v = validate(self._rows(category="Firm news", tags=["anything at all"]),
+                     audience_model())
+        self.assertEqual(v.errors, [])
+
+    def test_a_child_term_in_a_hierarchy_resolves(self):
+        v = validate(self._rows(category="People", line="Transactions"),
+                     audience_model())
+        self.assertEqual(v.errors, [])
+
+    def test_a_multiterm_value_outside_a_closed_set_is_an_error(self):
+        model = audience_model()
+        model["termSets"]["Topic"]["open"] = False
+        model["termSets"]["Topic"]["terms"] = ["Retrofit"]
+        v = validate(self._rows(category="People", tags=["Retrofit", "Nope"]), model)
+        self.assertTrue(any("'Nope'" in e and "Topic" in e for e in v.errors),
+                        v.errors)
+
+
 class TestValidatorPolylookups(unittest.TestCase):
     def test_a_qualified_reference_resolves(self):
         v = validate({
@@ -615,6 +718,232 @@ class TestFirmShape(unittest.TestCase):
 
     def test_a_tiny_firm_is_rejected(self):
         self.assertEqual(demodata.main(["--profile", "hr-starter", "--people", "3"]), 2)
+
+
+class TestIntranet(unittest.TestCase):
+    """The intranet section, and the two things Phase 5 is judged on:
+    audience targeting and the policy attestation report."""
+
+    PROFILE = "intranet-starter"
+
+    def _firm(self, people=64, seed=7):
+        model_file = ROOT / "build" / f"{self.PROFILE}.model.json"
+        if not model_file.exists():
+            self.skipTest(
+                f"run: python tools/schematool.py export --profile {self.PROFILE}")
+        self.model = json.loads(model_file.read_text(encoding="utf-8"))
+        firm = demodata.Firm(self.model, demodata.load_firm("adatum"), people, seed)
+        firm.build()
+        return firm
+
+    def _keys(self, table, column, *labels):
+        enum = self.model["enums"][
+            self.model["entities"][table]["attributes"][column]["enum"]]
+        by_label = {v["label"]: v["key"] for v in enum["values"]}
+        for label in labels:
+            self.assertIn(label, by_label, f"{table}[{column}]")
+        return {by_label[l] for l in labels}
+
+    def test_the_intranet_section_validates(self):
+        firm = self._firm()
+        validator = demodata.Validator(self.model, firm.rows)
+        validator.run()
+        self.assertEqual(validator.errors, [])
+
+    # -- audience targeting ---------------------------------------------------
+    def test_some_content_is_audience_targeted_and_most_is_not(self):
+        """Empty means everyone. A demo where everything is addressed to
+        everyone cannot show that audience targeting works at all, and one
+        where nothing is would be a firm that talks to nobody."""
+        firm = self._firm()
+        for table in ("NewsArticle", "CompanyEvent", "QuickLink"):
+            rows = firm.rows[table]
+            targeted = [r for r in rows
+                        if r.get("audienceOrgUnits") or r.get("audienceOffices")]
+            self.assertTrue(targeted, f"{table}: nothing is targeted")
+            self.assertLess(len(targeted) / len(rows), 0.8, table)
+
+    def test_every_audience_names_a_unit_or_office_that_exists(self):
+        firm = self._firm()
+        units = {u["code"] for u in firm.rows["OrgUnit"]}
+        offices = {o["code"] for o in firm.rows["Office"]}
+        for table in ("NewsArticle", "Announcement", "CompanyEvent", "QuickLink"):
+            for row in firm.rows[table]:
+                for code in row.get("audienceOrgUnits") or ():
+                    self.assertIn(code, units, f"{table} {row['code']}")
+                for code in row.get("audienceOffices") or ():
+                    self.assertIn(code, offices, f"{table} {row['code']}")
+
+    # -- policy attestation ---------------------------------------------------
+    def test_the_attestation_report_has_something_to_chase(self):
+        """Phase 5's exit criterion. Not zero outstanding, because then there is
+        no report; and both pending and overdue, because a report whose only
+        state is overdue cannot tell somebody who is late from somebody who
+        simply has not got to it yet."""
+        firm = self._firm()
+        pending = self._keys("PolicyAttestation", "status", "Pending")
+        overdue = self._keys("PolicyAttestation", "status", "Overdue")
+        rows = firm.rows["PolicyAttestation"]
+        self.assertTrue([a for a in rows if a["status"] in pending], "none pending")
+        self.assertTrue([a for a in rows if a["status"] in overdue], "none overdue")
+
+    def test_an_overdue_attestation_really_is_past_its_due_date(self):
+        firm = self._firm()
+        overdue = self._keys("PolicyAttestation", "status", "Overdue")
+        pending = self._keys("PolicyAttestation", "status", "Pending")
+        for row in firm.rows["PolicyAttestation"]:
+            due = dt.date.fromisoformat(row["dueDate"])
+            if row["status"] in overdue:
+                self.assertLess(due, demodata.TODAY, row["code"])
+            elif row["status"] in pending:
+                self.assertGreaterEqual(due, demodata.TODAY, row["code"])
+
+    def test_a_completed_attestation_carries_a_date_and_a_method(self):
+        firm = self._firm()
+        completed = self._keys("PolicyAttestation", "status", "Completed")
+        for row in firm.rows["PolicyAttestation"]:
+            if row["status"] in completed:
+                self.assertIsNotNone(row["attestedOn"], row["code"])
+                self.assertIsNotNone(row["method"], row["code"])
+            else:
+                self.assertIsNone(row["attestedOn"], row["code"])
+
+    def test_the_due_date_is_the_policys_own_window(self):
+        firm = self._firm()
+        policies = {p["code"]: p for p in firm.rows["PolicyDocument"]}
+        for row in firm.rows["PolicyAttestation"]:
+            policy = policies[row["policy"]]
+            expected = (dt.date.fromisoformat(policy["effectiveDate"])
+                        + dt.timedelta(days=policy["attestationDueDays"]))
+            self.assertEqual(row["dueDate"], expected.isoformat(), row["code"])
+
+    def test_only_policies_that_require_attestation_have_any(self):
+        firm = self._firm()
+        attested = {a["policy"] for a in firm.rows["PolicyAttestation"]}
+        for policy in firm.rows["PolicyDocument"]:
+            if policy["code"] in attested:
+                self.assertTrue(policy["requiresAttestation"], policy["code"])
+
+    def test_at_least_one_policy_is_past_its_own_review_date(self):
+        firm = self._firm()
+        stale = [p for p in firm.rows["PolicyDocument"]
+                 if dt.date.fromisoformat(p["nextReviewDate"]) < demodata.TODAY]
+        self.assertTrue(stale, "no policy is overdue for review")
+
+    # -- events ---------------------------------------------------------------
+    def test_a_waitlist_is_per_event_and_not_most_of_the_registrations(self):
+        """Position was counted across every event, so after the first one
+        every registration was a waitlisting: 453 of 524."""
+        firm = self._firm()
+        waitlisted = self._keys("EventRegistration", "status", "Waitlisted")
+        rows = firm.rows["EventRegistration"]
+        waiting = [r for r in rows if r["status"] in waitlisted]
+        self.assertTrue(waiting, "nothing is waitlisted, so capacity means nothing")
+        self.assertLess(len(waiting) / len(rows), 0.25)
+
+    def test_a_waitlisted_registration_is_on_an_oversubscribed_event(self):
+        firm = self._firm()
+        waitlisted = self._keys("EventRegistration", "status", "Waitlisted")
+        cancelled = self._keys("EventRegistration", "status", "Cancelled")
+        events = {e["code"]: e for e in firm.rows["CompanyEvent"]}
+        counts: dict[str, int] = {}
+        for row in firm.rows["EventRegistration"]:
+            counts[row["event"]] = counts.get(row["event"], 0) + 1
+        for row in firm.rows["EventRegistration"]:
+            if row["status"] in waitlisted:
+                self.assertGreater(counts[row["event"]],
+                                   events[row["event"]]["capacity"], row["code"])
+        del cancelled
+
+    def test_only_events_needing_registration_have_registrations(self):
+        firm = self._firm()
+        events = {e["code"]: e for e in firm.rows["CompanyEvent"]}
+        for row in firm.rows["EventRegistration"]:
+            self.assertTrue(events[row["event"]]["registrationRequired"],
+                            row["code"])
+
+    # -- service desk ---------------------------------------------------------
+    def test_every_request_carries_when_it_was_raised(self):
+        """The SLA measures start from raisedOn, not createdOn: a ticket phoned
+        in is typed up later, so createdOn measures the agent's typing."""
+        firm = self._firm()
+        for row in firm.rows["ServiceRequest"]:
+            self.assertIsNotNone(row["raisedOn"], row["code"])
+            self.assertGreater(row["dueOn"], row["raisedOn"], row["code"])
+
+    def test_some_requests_breach_their_category_target_and_most_do_not(self):
+        firm = self._firm()
+        categories = {c["code"]: c for c in firm.rows["ServiceCategory"]}
+        breached = settled = 0
+        for row in firm.rows["ServiceRequest"]:
+            if not row.get("resolvedOn"):
+                continue
+            settled += 1
+            raised = dt.datetime.fromisoformat(row["raisedOn"].rstrip("Z"))
+            done = dt.datetime.fromisoformat(row["resolvedOn"].rstrip("Z"))
+            target = categories[row["category"]]["targetResolutionHours"]
+            if (done - raised).total_seconds() / 3600 > target:
+                breached += 1
+        self.assertGreater(breached, 0, "no request ever misses its SLA")
+        self.assertLess(breached / settled, 0.4)
+
+    def test_a_resolved_request_has_a_resolution_and_a_new_one_has_no_assignee(self):
+        firm = self._firm()
+        settled = self._keys("ServiceRequest", "status", "Resolved", "Closed")
+        unassigned = self._keys("ServiceRequest", "status", "New")
+        for row in firm.rows["ServiceRequest"]:
+            if row["status"] in settled:
+                self.assertIsNotNone(row["resolvedOn"], row["code"])
+                self.assertIsNotNone(row["resolution"], row["code"])
+            if row["status"] in unassigned:
+                self.assertIsNone(row["assignedTo"], row["code"])
+                self.assertIsNone(row["firstRespondedOn"], row["code"])
+
+    def test_every_service_category_resolves_slower_than_it_responds(self):
+        firm = self._firm()
+        for row in firm.rows["ServiceCategory"]:
+            self.assertGreater(row["targetResolutionHours"],
+                               row["targetResponseHours"], row["code"])
+
+    # -- governance -----------------------------------------------------------
+    def test_the_site_inventory_has_something_for_governance_to_find(self):
+        firm = self._firm()
+        sites = firm.rows["Site"]
+        overdue = [s for s in sites if s.get("nextReviewDate")
+                   and dt.date.fromisoformat(s["nextReviewDate"]) < demodata.TODAY]
+        unscheduled = [s for s in sites if not s.get("nextReviewDate")]
+        shared = [s for s in sites if s.get("externalSharingEnabled")]
+        self.assertTrue(overdue, "no site is past its review date")
+        self.assertTrue(unscheduled, "every site has a review date, so the "
+                                     "'never scheduled' finding cannot appear")
+        self.assertTrue(shared, "no site shares externally")
+        self.assertEqual(len([s for s in sites if s["siteType"] == "hub"]), 1)
+
+    def test_every_site_but_the_hub_rolls_up_to_it(self):
+        firm = self._firm()
+        for site in firm.rows["Site"]:
+            if site["siteType"] == "hub":
+                self.assertIsNone(site.get("hubSite"), site["code"])
+            else:
+                self.assertEqual(site.get("hubSite"), "SITE-HUB", site["code"])
+
+    def test_some_published_news_is_stale_and_some_knowledge_needs_review(self):
+        firm = self._firm()
+        published = self._keys("NewsArticle", "status", "Published")
+        stale = [n for n in firm.rows["NewsArticle"]
+                 if n["status"] in published and n["publishedOn"]
+                 and dt.date.fromisoformat(n["publishedOn"][:10])
+                 < demodata.TODAY - dt.timedelta(days=365)]
+        self.assertTrue(stale, "nothing is stale, so the clutter tile reads zero")
+        old = [k for k in firm.rows["KnowledgeArticle"]
+               if dt.date.fromisoformat(k["nextReviewDate"]) < demodata.TODAY]
+        self.assertTrue(old)
+
+    def test_recognition_never_thanks_the_person_who_gave_it(self):
+        firm = self._firm()
+        for row in firm.rows["Recognition"]:
+            self.assertNotIn(row["givenBy"], row["recipients"], row["code"])
+            self.assertTrue(row["recipients"], row["code"])
 
 
 class TestTravel(unittest.TestCase):

@@ -64,13 +64,16 @@ TARGETS = ("schema", "dataverse", "powerbi", "sql", "sharepoint", "demo")
 SPECS = {
     "security": {"hr-starter": "phase1-roles.yaml", "law-firm-crm": "crm-roles.yaml",
                  "travel-starter": "travel-roles.yaml",
-                 "work-starter": "work-roles.yaml"},
+                 "work-starter": "work-roles.yaml",
+                 "intranet-starter": "intranet-roles.yaml"},
     "apps": {"hr-starter": "hr-admin.yaml", "law-firm-crm": "crm-intake.yaml",
              "travel-starter": "travel-desk.yaml",
-             "work-starter": "project-delivery.yaml"},
+             "work-starter": "project-delivery.yaml",
+             "intranet-starter": "intranet-admin.yaml"},
     "powerbi": {"hr-starter": "hr-dashboard.yaml", "law-firm-crm": "crm-dashboard.yaml",
                 "travel-starter": "travel-dashboard.yaml",
-                "work-starter": "work-dashboard.yaml"},
+                "work-starter": "work-dashboard.yaml",
+                "intranet-starter": "intranet-dashboard.yaml"},
 }
 
 
