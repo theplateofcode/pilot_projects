@@ -43,7 +43,7 @@ skipped, so if a step fails, fix the cause and run exactly the same command agai
 
 | | |
 |---|--:|
-| Publisher `pilotprojects` (prefix `crm`) and unmanaged solution `crm_pilot` | 1 |
+| Publisher `pilotprojects` (prefix `pilot`) and unmanaged solution `pilot_crm` | 1 |
 | Global choice sets | 28 |
 | New tables (Lead, Pitch, Pipeline, Stage, Fee Proposal, Proposal Line, Campaign, Consent, Employee, Office, Term…) | 27 |
 | Standard tables extended (`account`, `contact`; `transactioncurrency` reused as-is) | 2 |
@@ -57,7 +57,7 @@ skipped, so if a step fails, fix the cause and run exactly the same command agai
 | Reference data from the schema seeds: currencies, countries, languages, lead sources, pipelines and stages, term sets and terms | ~90 rows |
 | Demo data: Fabrikam Legal LLP — 8 clients, 14 contacts, 7 leads, 10 pitches, 4 fee proposals, campaigns, consent, activities | 109 rows |
 
-The app opens at `https://<yourorg>.crm.dynamics.com/main.aspx?appname=crm_app`.
+The app opens at `https://<yourorg>.crm.dynamics.com/main.aspx?appname=pilot_crmapp`.
 
 ## Steps
 
@@ -83,7 +83,7 @@ deployer to re-check everything against the environment (it still skips what exi
 |---|---|---|
 | `--org` | `$DATAVERSE_URL` | Environment URL. Required for `deploy` and `status`. |
 | `--profile` | `law-crm-starter` | Schema profile. `crm-starter` for generic wording; `law-crm-starter` adds the law-firm overlay (Client / Pitch / Fee Proposal, practice areas, panel pipeline). |
-| `--prefix` | `crm` (from `crm-app.yaml`) | Publisher prefix. **Decide before the first deploy — changing it later renames every table and column.** |
+| `--prefix` | `pilot` (from `crm-app.yaml`) | Publisher prefix. **Decide before the first deploy — changing it later renames every table and column.** |
 | `--auth` | `device` | `secret` uses a service principal: set `--client-id` and `DATAVERSE_CLIENT_SECRET`, and give the application user a System Customizer role. |
 | `--tenant` | `common` | Set it when device-code sign-in picks the wrong tenant. |
 | `--assign-me` | off | Assigns you the *CRM – Partner* role so the app works straight away. |
@@ -121,10 +121,10 @@ deployer to re-check everything against the environment (it still skips what exi
 
 ## Adapting it
 
-> **One prefix per tenant, not per pilot.** This pilot deploys with prefix `crm`, which also names the
-> shared core tables (`crm_employee`, `crm_office`, `crm_term`…). If you later deploy the HR pilot to the
-> same tenant, point it at the same prefix so it reuses those core tables rather than creating a second
-> copy under `hr_`. The prefix lives in one line of `app/crm-app.yaml`.
+> **One prefix for every pilot in a tenant.** This pilot deploys with prefix `pilot`, which also names the
+> shared core tables (`pilot_employee`, `pilot_office`, `pilot_term`…). Deploy the other pilots with the
+> same prefix so they reuse those core tables instead of creating a second people directory. The prefix
+> lives in one line of `app/crm-app.yaml`.
 
 - **Another industry**: deploy a different profile (`--profile crm-starter`), or add an overlay
   layer in `schemas/industries/` and a profile in `schemas/profiles.yaml`. Terminology from the
