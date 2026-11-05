@@ -83,6 +83,7 @@ class Dataverse:
         dry_run: bool = False,
         verbose: bool = False,
         log=None,
+        device_code_rounds: int = 4,
     ):
         self.org_url = normalise_org_url(org_url)
         self.base = f"{self.org_url}/api/data/{API_VERSION}"
@@ -90,6 +91,7 @@ class Dataverse:
         self.tenant = tenant
         self.client_id = client_id or PUBLIC_CLIENT_ID
         self.client_secret = client_secret
+        self.device_code_rounds = max(1, device_code_rounds)
         self.dry_run = dry_run
         self.verbose = verbose
         self._log = log or (lambda msg: print(msg, file=sys.stderr))
@@ -137,11 +139,21 @@ class Dataverse:
                 if result and "access_token" in result:
                     break
             if not result or "access_token" not in result:
-                flow = app.initiate_device_flow(scopes=scope)
-                if "user_code" not in flow:
-                    raise DataverseError(f"could not start device-code sign-in: {flow}")
-                self._log("\n" + flow["message"] + "\n")
-                result = app.acquire_token_by_device_flow(flow)
+                # Each device code lives about 15 minutes. A deployment often starts while
+                # nobody is at a browser, so issue a fresh code rather than giving up.
+                for round_number in range(1, self.device_code_rounds + 1):
+                    flow = app.initiate_device_flow(scopes=scope)
+                    if "user_code" not in flow:
+                        raise DataverseError(f"could not start device-code sign-in: {flow}")
+                    suffix = (
+                        ""
+                        if round_number == 1
+                        else f" (code {round_number} of {self.device_code_rounds} — the previous one expired)"
+                    )
+                    self._log("\n" + flow["message"] + suffix + "\n")
+                    result = app.acquire_token_by_device_flow(flow)
+                    if result and "access_token" in result:
+                        break
             if cache.has_state_changed:
                 cache_path.write_text(cache.serialize())
                 os.chmod(cache_path, 0o600)

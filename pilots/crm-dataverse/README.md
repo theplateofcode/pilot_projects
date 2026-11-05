@@ -35,7 +35,9 @@ cd pilots/crm-dataverse && python -m deploy.cli deploy --org https://yourorg.crm
 document it would send to `build/payloads/`. Read that before the first deploy.
 
 `deploy` signs you in with a device code (no app registration needed — the link and code appear
-in the terminal), then creates everything. It takes roughly 15–30 minutes on a trial
+in the terminal). Each code lasts about 15 minutes; if one expires before you approve it, the
+deployer issues a fresh one, up to four times, so a run can be started before you are at a
+browser. Then it creates everything. It takes roughly 15–30 minutes on a trial
 environment, mostly metadata creation. **Every step is idempotent**: anything already there is
 skipped, so if a step fails, fix the cause and run exactly the same command again.
 
